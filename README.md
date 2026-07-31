@@ -94,6 +94,15 @@ docker compose start
 {"status":"ok"}
 ```
 
+## 开源与使用声明
+
+- 本项目依据 [MIT License](LICENSE) 发布。使用、修改和再发布时，请保留适用的版权与许可证声明。
+- 本项目包含基于 [GithubStarsManager](https://github.com/AmintaCCCP/GithubStarsManager) 衍生的代码；来源与归属说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- 项目展示的数据来自 GitHub API、GitHub Trending RSS 和用户自行配置的 AI 服务。项目与 GitHub、相关开源项目及 AI 服务提供商不存在官方隶属、赞助或背书关系。
+- 使用者应自行遵守 GitHub、AI 服务提供商及其他数据来源的服务条款、API 使用限制和适用法律，并对自己的 Token、API Key、代理配置及使用行为负责。
+- 请勿将 Token、API Key、数据库、加密密钥或任何个人数据提交到公开仓库。AI 生成的分类、摘要和排序仅供信息整理与研究参考，应自行核验。
+- 本项目按许可证所述以“现状”提供，不对数据完整性、实时性、可用性或任何使用结果作出保证。
+
 ## 开发与验证
 
 前端和后端分别位于项目根目录与 `server/`。修改后可运行：
