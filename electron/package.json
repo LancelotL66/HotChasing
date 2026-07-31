@@ -1,8 +1,8 @@
 {
-  "name": "github-stars-manager-desktop",
+  "name": "hot-chasing-desktop",
   "version": "0.7.1",
-  "description": "GitHub Stars Manager Desktop App",
+  "description": "HotChasing Desktop App",
   "main": "main.js",
-  "author": "GitHub Stars Manager",
+  "author": "HotChasing",
   "license": "MIT"
 }

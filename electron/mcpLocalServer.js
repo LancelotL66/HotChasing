@@ -275,7 +275,7 @@ function getTools(vectorAvailable) {
   const tools = [
     {
       name: 'gsm_status',
-      description: 'Get GithubStarsManager MCP status.',
+      description: 'Get HotChasing MCP status.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
@@ -364,7 +364,7 @@ async function callTool(name, args, snapshot) {
   switch (name) {
     case 'gsm_status':
       return text({
-        name: 'github-stars-manager',
+        name: 'hot-chasing',
         version: '0.7.0',
         mode: 'electron-local',
         repositoryCount: repos.length,
@@ -497,7 +497,7 @@ function createMcpLocalServer(getState) {
         result: {
           protocolVersion: body?.params?.protocolVersion || '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'github-stars-manager', version: '0.7.0' },
+          serverInfo: { name: 'hot-chasing', version: '0.7.1' },
         },
       };
     }

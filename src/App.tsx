@@ -11,6 +11,8 @@ import { DebugModeIndicator } from './components/DebugModeIndicator';
 import { DiscoveryView } from './components/DiscoveryView';
 import { GistView } from './components/GistView';
 import { BackToTop } from './components/BackToTop';
+import { DailyDigestView } from './components/DailyDigestView';
+import { Top100View } from './components/Top100View';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppStore } from './store/useAppStore';
 import { useAutoUpdateCheck } from './hooks/useAutoUpdateCheck';
@@ -216,6 +218,10 @@ function App() {
         );
       case 'settings':
         return <SettingsView />;
+      case 'digest':
+        return <DailyDigestView />;
+      case 'top100':
+        return <Top100View />;
       default:
         return null;
     }

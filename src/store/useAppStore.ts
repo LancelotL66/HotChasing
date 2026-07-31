@@ -390,7 +390,7 @@ interface AppActions {
   
   // UI actions
   setTheme: (theme: 'light' | 'dark') => void;
-  setCurrentView: (view: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription') => void;
+  setCurrentView: (view: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest') => void;
   setSelectedCategory: (category: string) => void;
   setLanguage: (language: 'zh' | 'en') => void;
   setSidebarCollapsed: (collapsed: boolean) => void;

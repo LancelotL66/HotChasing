@@ -1,7 +1,7 @@
 # Electron Builder配置文件
-appId: com.github-stars-manager.app
-productName: GitHub Stars Manager
-copyright: Copyright © 2024 GitHub Stars Manager
+appId: com.hotchasing.app
+productName: HotChasing
+copyright: Copyright © 2026 HotChasing
 
 directories:
   output: release
@@ -30,7 +30,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: GitHub Stars Manager
+  shortcutName: HotChasing
 
 # macOS配置  
 mac:
@@ -43,7 +43,7 @@ mac:
   category: public.app-category.productivity
 
 dmg:
-  title: GitHub Stars Manager
+  title: HotChasing
   icon: dist/vite.svg
   window:
     width: 540
@@ -71,10 +71,10 @@ linux:
         - x64
   icon: dist/vite.svg
   category: Office
-  synopsis: AI-powered GitHub starred repositories management tool
+  synopsis: Local-first hot open-source project discovery and tracking
   description: >
-    GitHub Stars Manager is an intelligent tool for organizing and managing 
-    your GitHub starred repositories with AI-powered analysis and release tracking.
+    HotChasing is a local-first tool for discovering, tracking, and summarizing
+    noteworthy open-source projects.
 
 # 发布配置
 publish:

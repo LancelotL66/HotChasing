@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2 } from 'lucide-react';
+import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2, Newspaper, Trophy } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useDialog } from '../hooks/useDialog';
 import { HeaderMenuId, AppState } from '../types';
@@ -14,6 +14,8 @@ const MENU_META: Record<HeaderMenuId, {
   releases: { icon: Calendar, labelZh: '发布', labelEn: 'Releases' },
   forks: { icon: GitFork, labelZh: '复刻', labelEn: 'Forks' },
   subscription: { icon: TrendingUp, labelZh: '趋势', labelEn: 'Trending' },
+  digest: { icon: Newspaper, labelZh: '热点', labelEn: 'Hot' },
+  top100: { icon: Trophy, labelZh: 'Top100', labelEn: 'Top 100' },
   settings: { icon: Settings, labelZh: '设置', labelEn: 'Settings' },
 };
 
@@ -35,7 +37,7 @@ export const Header: React.FC = () => {
 
   const visibleMenus = useMemo(() =>
     [...headerMenuConfig]
-      .filter(item => item.visible)
+      .filter(item => item.visible && item.id !== 'subscription')
       .sort((a, b) => a.order - b.order),
     [headerMenuConfig]
   );
@@ -51,21 +53,21 @@ export const Header: React.FC = () => {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg overflow-hidden flex-shrink-0">
               <img 
                 src="./icon.png" 
-                alt="GitHub Stars Manager" 
+                alt="HotChasing"
                 className="w-10 h-10 object-cover"
               />
             </div>
             <div className="min-w-0 hidden sm:block">
               <h1 className="truncate text-xl font-medium text-gray-900 dark:text-text-primary tracking-tight">
-                GitHub Stars Manager
+                HotChasing
               </h1>
               <p className="truncate text-sm text-gray-500 dark:text-text-tertiary">
-                AI-powered repository management
+                热门开源工具追踪
               </p>
             </div>
             <div className="min-w-0 sm:hidden">
               <h1 className="truncate text-base font-bold text-gray-900 dark:text-text-primary tracking-tight">
-                GitHub Stars
+                HotChasing
               </h1>
             </div>
           </div>

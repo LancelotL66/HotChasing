@@ -1,10 +1,7 @@
-version: '3.8'
-
 services:
   frontend:
-    image: ghcr.io/amintacccp/github-stars-manager-frontend:${FRONTEND_IMAGE_TAG:-latest}
-    # Uncomment below (and comment out 'image') to build locally instead:
-    # build: .
+    image: hotchasing/frontend:${FRONTEND_IMAGE_TAG:-local}
+    build: .
     ports:
       - "8080:80"
     depends_on:
@@ -14,9 +11,8 @@ services:
     restart: unless-stopped
 
   backend:
-    image: ghcr.io/amintacccp/github-stars-manager-server:${BACKEND_IMAGE_TAG:-latest}
-    # Uncomment below (and comment out 'image') to build locally instead:
-    # build: ./server
+    image: hotchasing/server:${BACKEND_IMAGE_TAG:-local}
+    build: ./server
     expose:
       - "3000"
     environment:

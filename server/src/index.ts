@@ -17,6 +17,9 @@ import syncRouter from './routes/sync.js';
 import proxyRouter from './routes/proxy.js';
 import logsRouter from './routes/logs.js';
 import mcpAdminRouter from './routes/mcp.js';
+import discoveryRouter from './routes/discovery.js';
+import digestsRouter from './routes/digests.js';
+import classicRankingRouter from './routes/classicRanking.js';
 import { mountMcpRoutes } from './mcp/http.js';
 
 export function createApp(): express.Express {
@@ -52,6 +55,9 @@ export function createApp(): express.Express {
   app.use(categoriesRouter);
   app.use(configsRouter);
   app.use(syncRouter);
+  app.use(discoveryRouter);
+  app.use(digestsRouter);
+  app.use(classicRankingRouter);
 
   // Wave 3: Proxy routes
   app.use(proxyRouter);

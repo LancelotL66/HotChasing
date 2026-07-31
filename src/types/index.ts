@@ -36,6 +36,9 @@ export interface Repository {
   has_fetched_releases?: boolean;   // whether this repo has been synced for releases
   /** SPDX id（如 'MIT'、'Apache-2.0'）；无许可证/未识别为 null。AI/搜索/过滤均以此为准。 */
   license?: string | null;
+  hot_summary_zh?: string | null;
+  hot_summary_zh_status?: 'pending' | 'generated' | 'failed' | 'stale';
+  hot_summary_zh_source?: 'ai' | 'rule' | 'manual' | null;
 }
 
 export interface ReleaseAsset {
@@ -369,7 +372,7 @@ export interface AssetFilter {
   icon?: string;
 }
 
-export type HeaderMenuId = 'repositories' | 'gists' | 'releases' | 'forks' | 'subscription' | 'settings';
+export type HeaderMenuId = 'repositories' | 'gists' | 'releases' | 'forks' | 'subscription' | 'digest' | 'top100' | 'settings';
 
 export interface HeaderMenuItem {
   id: HeaderMenuId;
@@ -383,7 +386,9 @@ export const defaultHeaderMenuConfig: HeaderMenuItem[] = [
   { id: 'releases', visible: true, order: 2 },
   { id: 'forks', visible: true, order: 3 },
   { id: 'subscription', visible: true, order: 4 },
-  { id: 'settings', visible: true, order: 5 },
+  { id: 'digest', visible: true, order: 5 },
+  { id: 'top100', visible: true, order: 6 },
+  { id: 'settings', visible: true, order: 7 },
 ];
 
 export interface AppState {
@@ -451,7 +456,7 @@ export interface AppState {
   
   // UI
   theme: 'light' | 'dark';
-  currentView: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription';
+  currentView: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest' | 'top100';
   selectedCategory: string;
   language: 'zh' | 'en';
   isSidebarCollapsed: boolean;

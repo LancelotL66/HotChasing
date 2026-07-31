@@ -442,7 +442,7 @@ const DataStats: React.FC<DataStatsProps> = ({ currentCount, totalCount, languag
   );
 };
 
-export const DiscoveryView: React.FC = React.memo(() => {
+export const DiscoveryView: React.FC<{ trendingOnly?: boolean }> = React.memo(({ trendingOnly = false }) => {
   const {
     githubToken,
     language,
@@ -512,9 +512,16 @@ export const DiscoveryView: React.FC = React.memo(() => {
     return window.location.protocol === 'file:' || navigator.userAgent.includes('Electron');
   }, []);
   const safeDiscoveryChannels = useMemo(
-    () => Array.isArray(discoveryChannels) ? discoveryChannels.filter(Boolean) : [],
-    [discoveryChannels]
+    () => (Array.isArray(discoveryChannels) ? discoveryChannels.filter(Boolean) : [])
+      .filter((channel) => !trendingOnly || channel.id === 'trending'),
+    [discoveryChannels, trendingOnly]
   );
+
+  useEffect(() => {
+    if (trendingOnly && selectedDiscoveryChannel !== 'trending') {
+      setSelectedDiscoveryChannel('trending');
+    }
+  }, [trendingOnly, selectedDiscoveryChannel, setSelectedDiscoveryChannel]);
 
   // 获取当前频道的所有仓库
   const allRepos = useMemo(
@@ -938,7 +945,7 @@ export const DiscoveryView: React.FC = React.memo(() => {
   return (
     <div className="flex flex-col">
       {/* Mobile Tab Navigation */}
-      <MobileTabNav
+      {!trendingOnly && <MobileTabNav
         channels={mobileChannels}
         selectedChannel={selectedDiscoveryChannel}
         onChannelSelect={(channel) => {
@@ -951,12 +958,12 @@ export const DiscoveryView: React.FC = React.memo(() => {
           setSelectedDiscoveryChannel(channel);
         }}
         language={language}
-      />
+      />}
 
       <div
         className="flex flex-col gap-4 lg:flex-row lg:gap-6 flex-1 min-h-0 min-w-0 items-start"
       >
-        <div
+        {!trendingOnly && <div
           ref={sidebarRef}
           className="hidden lg:block w-64 shrink-0 sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden"
           style={{ WebkitOverflowScrolling: 'touch' }}
@@ -979,7 +986,7 @@ export const DiscoveryView: React.FC = React.memo(() => {
             isAnalyzing={isAnalyzing}
             language={language}
           />
-        </div>
+        </div>}
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
           {/* 顶部工具栏 - 随滚动显示/隐藏 */}

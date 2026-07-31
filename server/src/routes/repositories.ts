@@ -60,6 +60,9 @@ function transformRepo(row: Record<string, unknown>) {
     vector_indexed_at: row.vector_indexed_at ?? undefined,
     license: row.license ?? null,
     vector_indexed_license: row.vector_indexed_license ?? null,
+    hot_summary_zh: row.hot_summary_zh ?? null,
+    hot_summary_zh_status: row.hot_summary_zh_status ?? 'pending',
+    hot_summary_zh_source: row.hot_summary_zh_source ?? null,
   };
 }
 

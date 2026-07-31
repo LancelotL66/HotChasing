@@ -43,8 +43,11 @@ http {
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 300s;
-            proxy_send_timeout 300s;
+            # Top100 can run a bounded batch of AI classifications on its first update.
+            # Keep the upstream connection alive instead of turning a valid long task
+            # into an nginx error response.
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
             proxy_connect_timeout 30s;
             proxy_buffering off;
             client_max_body_size 100m;
@@ -161,9 +164,5 @@ http {
             internal;
         }
 
-        error_page   500 502 503 504  /50x.html;
-        location = /50x.html {
-            internal;
-        }
     }
 }
