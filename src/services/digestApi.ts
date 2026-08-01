@@ -23,7 +23,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const digestApi = {
   list: () => request<Array<Pick<DailyDigest, 'id' | 'digest_date' | 'title' | 'summary' | 'generated_at' | 'status'>>>('/digests'),
   get: (date: string) => request<DailyDigest>(`/digests/${encodeURIComponent(date)}`),
-  generate: () => request<{ digestDate: string }>('/digests/generate', { method: 'POST', body: '{}' }),
+  generate: (force = false) => request<{ digestDate: string; archived: boolean }>('/digests/generate', { method: 'POST', body: JSON.stringify({ force }) }),
+  rebuildAll: () => request<{ rebuilt: number; failed: Array<{ date: string; error: string }> }>('/digests/rebuild-all', { method: 'POST', body: '{}' }),
   collectHotProjects: () => request<{ id: string; channels: string[]; itemsFound: number; itemsSaved: number }>('/discovery/run', { method: 'POST', body: '{}' }),
   regenerateSummary: (repoId: number) => request(`/projects/${repoId}/hot-summary-zh/regenerate`, { method: 'POST', body: '{}' }),
 };

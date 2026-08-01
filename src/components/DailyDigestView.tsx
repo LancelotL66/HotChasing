@@ -8,6 +8,7 @@ import {
   Search,
   Sparkles,
   Star,
+  X,
 } from "lucide-react";
 import {
   digestApi,
@@ -77,6 +78,7 @@ export function DailyDigestView() {
     null,
   );
   const [message, setMessage] = useState("");
+  const [archiveNotice, setArchiveNotice] = useState("");
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [updatePhase, setUpdatePhase] = useState("");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
@@ -125,6 +127,11 @@ export function DailyDigestView() {
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, []);
+  useEffect(() => {
+    if (!archiveNotice) return;
+    const timer = window.setTimeout(() => setArchiveNotice(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [archiveNotice]);
   const showToday = () => {
     setTimeMode("today");
     setSelectedDate("");
@@ -201,6 +208,14 @@ export function DailyDigestView() {
     setUpdatePhase("正在采集热点候选");
     let progressTimer: number | undefined;
     try {
+      const today = new Date().toISOString().slice(0, 10);
+      const currentDigests = await digestApi.list();
+      const existing = currentDigests.find((item) => item.digest_date === today);
+      if (existing) {
+        await load(today);
+        setArchiveNotice("今日日报已归档，已直接读取，不重复采集或调用 AI。");
+        return;
+      }
       const collected = await digestApi.collectHotProjects();
       setUpdateProgress(45);
       setUpdatePhase("正在评分、AI 分类与生成摘要");
@@ -224,6 +239,20 @@ export function DailyDigestView() {
       if (progressTimer !== undefined) window.clearInterval(progressTimer);
       setLoading(false);
       window.setTimeout(() => setUpdateProgress(null), 1200);
+    }
+  };
+  const rebuildAllDigests = async () => {
+    if (!window.confirm("将使用当前规则重建所有已归档日报，并重新调用必要的 AI。确认继续？")) return;
+    setLoading(true);
+    setMessage("");
+    try {
+      const result = await digestApi.rebuildAll();
+      await load(new Date().toISOString().slice(0, 10));
+      setMessage(result.failed.length ? `已重建 ${result.rebuilt} 份日报；${result.failed.length} 份失败：${result.failed.map((item) => item.date).join("、")}。` : `已按当前规则重建 ${result.rebuilt} 份归档日报。`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "重建日报失败");
+    } finally {
+      setLoading(false);
     }
   };
   const star = async (item: DailyDigestItem) => {
@@ -320,14 +349,23 @@ export function DailyDigestView() {
             新近项目按 README 和工程结构驱动的 AI 分类组织，不使用个人星标仓库。
           </p>
         </div>
-        <button
-          onClick={collectAndGenerate}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
-        >
-          <Radar className="h-4 w-4" />
-          采集并生成日报
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={collectAndGenerate}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+          >
+            <Radar className="h-4 w-4" />
+            采集今日日报
+          </button>
+          <button
+            onClick={rebuildAllDigests}
+            disabled={loading || !digests.length}
+            className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 disabled:opacity-50 dark:border-blue-500/60 dark:text-blue-200"
+          >
+            测试：重新采集全部日报
+          </button>
+        </div>
       </div>
       <div className="space-y-1">
         <p className="text-xs text-gray-500">
@@ -399,6 +437,12 @@ export function DailyDigestView() {
         <p className="rounded-lg bg-blue-50 p-3 text-blue-800 dark:bg-blue-950/30 dark:text-blue-100">
           {message}
         </p>
+      )}
+      {archiveNotice && (
+        <div className="fixed right-4 top-4 z-50 flex max-w-sm items-start gap-3 rounded-lg border border-blue-200 bg-white p-4 text-sm text-blue-900 shadow-lg dark:border-blue-500/40 dark:bg-slate-900 dark:text-blue-100" role="status">
+          <p className="flex-1">{archiveNotice}</p>
+          <button onClick={() => setArchiveNotice("")} aria-label="关闭提示" className="rounded p-1 hover:bg-blue-100 dark:hover:bg-blue-950/50"><X className="h-4 w-4" /></button>
+        </div>
       )}
       <div className="flex flex-wrap gap-2">
         <input

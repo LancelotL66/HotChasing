@@ -17,6 +17,7 @@ const classificationSchema = z.object({
   license: z.string().min(1), commercialUseTags: z.array(z.string()).max(3), privacyTags: z.array(z.string()).max(4),
   confidence: z.number().min(0).max(1), reason: z.string().min(10).max(240),
 });
+const top100EnrichmentSchema = classificationSchema.extend({ summaryZh: z.string().min(20).max(180) });
 
 function chatUrl(baseUrl: string): string {
   const normalized = baseUrl.replace(/\/$/, '');
@@ -25,6 +26,35 @@ function chatUrl(baseUrl: string): string {
 
 function parseJson(text: string): z.infer<typeof summarySchema> {
   return summarySchema.parse(JSON.parse(text.replace(/^```json\s*|\s*```$/g, '').trim()));
+}
+
+export function getActiveAIConcurrency(): number {
+  const db = getDb();
+  const setting = db.prepare('SELECT value FROM settings WHERE key=?').get('activeAIConfig') as { value?: string } | undefined;
+  let selected: unknown = null;
+  try { selected = setting?.value ? JSON.parse(setting.value) : null; } catch { selected = setting?.value ?? null; }
+  const configId = typeof selected === 'string' || typeof selected === 'number' ? String(selected) : null;
+  const row = configId ? db.prepare('SELECT concurrency FROM ai_configs WHERE id=?').get(configId) as { concurrency?: number } | undefined : undefined;
+  return Math.max(1, Math.min(4, Number(row?.concurrency) || 1));
+}
+
+async function requestProvider(options: Parameters<typeof proxyRequest>[0]) {
+  let response = await proxyRequest(options);
+  if ([502, 503, 504].includes(response.status)) {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    response = await proxyRequest(options);
+  }
+  return response;
+}
+
+function normalizeDeploymentDifficulty(value: unknown): unknown {
+  const normalized = String(value ?? '').trim();
+  if (['极低', '很低', '最低'].includes(normalized)) return '极低';
+  if (['低', '较低'].includes(normalized)) return '低';
+  if (['中', '中等', '一般'].includes(normalized)) return '中';
+  if (['高', '较高'].includes(normalized)) return '高';
+  if (['极高', '很高', '最高'].includes(normalized)) return '极高';
+  return value;
 }
 
 export async function generateHotSummary(repo: Record<string, unknown>): Promise<{ summary: string; source: 'ai' | 'rule'; model: string | null; sourceHash: string }> {
@@ -60,7 +90,7 @@ export async function generateHotSummary(repo: Record<string, unknown>): Promise
       headers = { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) };
       body = { model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 300, response_format: { type: 'json_object' } };
     }
-    const result = await proxyRequest({ url, method: 'POST', headers, body, timeout: 60000, proxyConfig: null, allowPrivate: true });
+    const result = await requestProvider({ url, method: 'POST', headers, body, timeout: 60000, proxyConfig: null, allowPrivate: true });
     if (result.status < 200 || result.status >= 300) throw new Error(`Provider returned ${result.status}`);
     const data = result.data as { choices?: Array<{ message?: { content?: string } }>; content?: Array<{ text?: string }>; message?: { content?: string } };
     const raw = apiType === 'ollama' ? data.message?.content ?? '' : apiType === 'claude' ? data.content?.map((item) => item.text ?? '').join('') ?? '' : data.choices?.[0]?.message?.content ?? '';
@@ -89,12 +119,36 @@ export async function generateProjectClassification(repo: Record<string, unknown
     if (apiType === 'claude') { url = `${String(aiConfig.base_url).replace(/\/$/, '')}/v1/messages`; headers = { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }; body = { model, max_tokens: 1200, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }; }
     else if (apiType === 'ollama') { url = `${String(aiConfig.base_url).replace(/\/$/, '')}/api/chat`; headers = { 'Content-Type': 'application/json' }; body = { model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }; }
     else { url = apiType === 'openai-compatible' ? String(aiConfig.base_url).replace(/\/$/, '') : chatUrl(String(aiConfig.base_url)); headers = { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) }; body = { model, messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1200, response_format: { type: 'json_object' } }; }
-    const response = await proxyRequest({ url, method: 'POST', headers, body, timeout: 60000, proxyConfig: null, allowPrivate: true }); if (response.status < 200 || response.status >= 300) throw new Error(`Provider returned ${response.status}`);
+    const response = await requestProvider({ url, method: 'POST', headers, body, timeout: 60000, proxyConfig: null, allowPrivate: true }); if (response.status < 200 || response.status >= 300) throw new Error(`Provider returned ${response.status}`);
     const data = response.data as { choices?: Array<{ message?: { content?: string } }>; content?: Array<{ text?: string }>; message?: { content?: string } };
     const content = apiType === 'ollama' ? data.message?.content ?? '' : apiType === 'claude' ? data.content?.map((item) => item.text ?? '').join('') ?? '' : data.choices?.[0]?.message?.content ?? '';
-    const parsed = classificationSchema.parse(JSON.parse(content.replace(/^```json\s*|\s*```$/g, '').trim()));
+    const rawClassification = JSON.parse(content.replace(/^```json\s*|\s*```$/g, '').trim());
+    const parsed = classificationSchema.parse({ ...rawClassification, deploymentDifficulty: normalizeDeploymentDifficulty(rawClassification.deploymentDifficulty) });
     const learningByBuilding = /build-your-own|recreating.*from scratch|from scratch.*technolog/i.test(`${repo.full_name ?? ''} ${repo.description ?? ''} ${readme.slice(0, 2000)}`);
     if (learningByBuilding) return { ...parsed, primaryCategory: '开发者工具', functionTags: [...new Set(['编程实践', ...parsed.functionTags])].slice(0, 8), reason: '项目通过从零复现技术帮助开发者进行编程实践，归为开发者工具。', source: 'ai', sourceHash };
     return { ...parsed, source: 'ai', sourceHash };
   } catch (error) { logger.errorFromError('ai.classification', 'AI classification failed; using rule fallback', error, { repoId: repo.id }); return { ...fallback, sourceHash }; }
+}
+
+export async function generateTop100Enrichment(repo: Record<string, unknown>, readme: string, architecture: string, fallback: ProjectClassification): Promise<{ classification: ProjectClassification; summary: string; summarySource: 'ai' | 'rule'; model: string | null }> {
+  const sourceHash = classificationSourceHash(repo, readme, architecture); const summaryFallback = ruleHotSummary(repo);
+  const db = getDb(); const setting = db.prepare('SELECT value FROM settings WHERE key=?').get('activeAIConfig') as { value?: string } | undefined;
+  let selected: unknown = null; try { selected = setting?.value ? JSON.parse(setting.value) : null; } catch { selected = setting?.value ?? null; }
+  const configId = typeof selected === 'string' || typeof selected === 'number' ? String(selected) : null;
+  const aiConfig = configId ? db.prepare('SELECT * FROM ai_configs WHERE id=?').get(configId) as Record<string, unknown> | undefined : undefined;
+  if (!aiConfig) return { classification: { ...fallback, sourceHash }, summary: summaryFallback, summarySource: 'rule', model: null };
+  try {
+    const apiType = String(aiConfig.api_type || 'openai'); const apiKey = aiConfig.api_key_encrypted ? decrypt(String(aiConfig.api_key_encrypted), config.encryptionKey) : ''; const model = String(aiConfig.model || '');
+    const prompt = `根据公开仓库的 Description、Topics、README 与根目录工程结构输出一个 JSON。分类优先根据 README 的核心用途和工程结构判断，不得仅因 Dockerfile、CI 或依赖文件归为基础设施。${classificationGuidance} 主分类只能是：${PRIMARY_CATEGORIES.join('、')}。functionTags 3-8 个，productForms 1-3 个，targetUsers 1-5 个。summaryZh 为 60 至 120 个中文字符，客观说明项目是什么、解决什么问题、适合谁、为何值得关注；不得虚构能力。置信度低于 0.60 时 primaryCategory 必须是“其他 / 待分类”。只返回字段：primaryCategory,secondaryCategories,functionTags,productForms,platformTags,targetUsers,deploymentModes,deploymentDifficulty,hotReasonTags,maturity,costTags,license,commercialUseTags,privacyTags,confidence,reason,summaryZh。\n仓库：${repo.full_name}\nDescription：${repo.description ?? ''}\nTopics：${repo.topics ?? '[]'}\n语言：${repo.language ?? '未知'}\nLicense：${repo.license ?? '未知'}\nStars：${repo.stargazers_count ?? 0}\n更新时间：${repo.updated_at ?? '未知'}\n根目录工程结构：\n${architecture || '未获取到工程结构'}\nREADME：\n${readme || '未获取到 README'}`;
+    let url: string; let headers: Record<string, string>; let body: Record<string, unknown>;
+    if (apiType === 'claude') { url = `${String(aiConfig.base_url).replace(/\/$/, '')}/v1/messages`; headers = { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }; body = { model, max_tokens: 1400, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }; }
+    else if (apiType === 'ollama') { url = `${String(aiConfig.base_url).replace(/\/$/, '')}/api/chat`; headers = { 'Content-Type': 'application/json' }; body = { model, stream: false, format: 'json', messages: [{ role: 'user', content: prompt }] }; }
+    else { url = apiType === 'openai-compatible' ? String(aiConfig.base_url).replace(/\/$/, '') : chatUrl(String(aiConfig.base_url)); headers = { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) }; body = { model, messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 1400, response_format: { type: 'json_object' } }; }
+    const response = await requestProvider({ url, method: 'POST', headers, body, timeout: 60000, proxyConfig: null, allowPrivate: true }); if (response.status < 200 || response.status >= 300) throw new Error(`Provider returned ${response.status}`);
+    const data = response.data as { choices?: Array<{ message?: { content?: string } }>; content?: Array<{ text?: string }>; message?: { content?: string } };
+    const content = apiType === 'ollama' ? data.message?.content ?? '' : apiType === 'claude' ? data.content?.map((item) => item.text ?? '').join('') ?? '' : data.choices?.[0]?.message?.content ?? '';
+    const raw = JSON.parse(content.replace(/^```json\s*|\s*```$/g, '').trim()); const parsed = top100EnrichmentSchema.parse({ ...raw, deploymentDifficulty: normalizeDeploymentDifficulty(raw.deploymentDifficulty) });
+    const { summaryZh, ...classification } = parsed;
+    return { classification: { ...classification, source: 'ai', sourceHash }, summary: summaryZh, summarySource: 'ai', model };
+  } catch (error) { logger.errorFromError('ai.top100-enrichment', 'Top100 AI enrichment failed; using rule fallback', error, { repoId: repo.id }); return { classification: { ...fallback, sourceHash }, summary: summaryFallback, summarySource: 'rule', model: null }; }
 }

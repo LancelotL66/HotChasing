@@ -52,4 +52,19 @@ describe('daily digest date preview', () => {
     });
     expect(prepareMock.mock.calls.some(([sql]) => String(sql).includes('captured_at>=? AND captured_at<?'))).toBe(true);
   });
+
+  it('returns an existing generated digest without loading candidates or calling AI', async () => {
+    prepareMock.mockImplementation((sql: string) => ({
+      get: () => sql.includes('FROM daily_digests') ? { id: 'digest-1', status: 'generated' } : undefined,
+      all: () => [],
+    }));
+
+    const response = await request(createTestApp())
+      .post('/api/digests/generate')
+      .send({ date: '2026-07-21' })
+      .expect(200);
+
+    expect(response.body).toMatchObject({ id: 'digest-1', digestDate: '2026-07-21', archived: true });
+    expect(prepareMock.mock.calls.some(([sql]) => String(sql).includes('FROM repositories r'))).toBe(false);
+  });
 });

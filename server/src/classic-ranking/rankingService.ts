@@ -1,6 +1,7 @@
 import { getDb } from '../db/connection.js';
-import { classificationSourceHash, classifyProjectByRules, fetchRepositoryArchitecture, fetchRepositoryReadme } from '../discovery/classificationService.js';
-import { generateProjectClassification } from '../discovery/aiGateway.js';
+import { classificationSourceHash, classifyProjectByRules, fetchRepositoryEnrichment } from '../discovery/classificationService.js';
+import { generateTop100Enrichment, getActiveAIConcurrency } from '../discovery/aiGateway.js';
+import { hotSummarySourceHash } from '../discovery/summaryService.js';
 
 const VERSION = 'github-hot-v2';
 const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value * 100) / 100));
@@ -17,16 +18,6 @@ export async function generateTop100(snapshotDate = new Date().toISOString().sli
   const candidates = db.prepare(`SELECT DISTINCT r.* FROM repositories r JOIN metric_snapshots s ON s.repo_id=r.id
     WHERE s.source_channel='top100_candidates' AND r.updated_at >= ?
     `).all(new Date(activeSince).toISOString()) as Array<Record<string, unknown>>;
-  const classifications = await mapWithConcurrency(candidates, 4, async (repo) => {
-    const [readme, architecture] = await Promise.all([fetchRepositoryReadme(String(repo.full_name ?? '')), fetchRepositoryArchitecture(String(repo.full_name ?? ''))]);
-    const sourceHash = classificationSourceHash(repo, readme, architecture);
-    if (repo.classification_source_hash === sourceHash && repo.primary_category) {
-      return { repo, classification: null };
-    }
-    const fallback = classifyProjectByRules(repo);
-    return { repo, classification: await generateProjectClassification(repo, readme, architecture, fallback) };
-  });
-  const classificationFor = (repo: Record<string, unknown>) => classifications.find((item) => item.repo.id === repo.id)?.classification;
   const scored = candidates.map((repo) => {
     const fallbackClassification = classifyProjectByRules(repo);
     const ageDays = Math.max(1, (Date.now() - Date.parse(String(repo.created_at))) / 86400000);
@@ -44,9 +35,18 @@ export async function generateTop100(snapshotDate = new Date().toISOString().sli
     const risk = repo.license_tag ? 0 : 10;
     const classic = clamp(adoption * .20 + longevity * .10 + ecosystem * .15 + community * .10 + engineering * .10 + currentHot * .35);
     const total = clamp(classic - risk); const confidence = Math.min(1, (repo.description ? .3 : .1) + (repo.topics ? .2 : .05) + .3 + (repo.license_tag ? .2 : 0));
-    const classification = classificationFor(repo) ?? fallbackClassification;
-    return { repo, classification, primaryCategory: String(classification.primaryCategory ?? repo.primary_category ?? fallbackClassification.primaryCategory), adoption, longevity, ecosystem, community, engineering, currentHot, risk, classic, total, confidence };
-  }).filter((item) => item.total >= 60 && item.confidence >= .6).sort((a, b) => b.total - a.total || b.adoption - a.adoption).slice(0, 100);
+    return { repo, fallbackClassification, adoption, longevity, ecosystem, community, engineering, currentHot, risk, classic, total, confidence };
+  }).filter((item) => item.total >= 60 && item.confidence >= .6).sort((a, b) => b.total - a.total || b.adoption - a.adoption || Number(a.repo.id) - Number(b.repo.id)).slice(0, 100);
+  // Ranking is deterministic before enrichment. AI only processes final items,
+  // and cached AI classifications are reused while the repository is unchanged.
+  const enrichments = await mapWithConcurrency(scored, Math.max(2, getActiveAIConcurrency()), async (item) => {
+    if (item.repo.classification_locked) return null;
+    const { readme, architecture } = await fetchRepositoryEnrichment(item.repo);
+    const sourceHash = classificationSourceHash(item.repo, readme, architecture);
+    const summaryCurrent = item.repo.hot_summary_zh_source === 'ai' && item.repo.hot_summary_zh_source_hash === hotSummarySourceHash(item.repo);
+    if (item.repo.primary_category && item.repo.classification_source === 'ai' && item.repo.classification_source_hash === sourceHash && summaryCurrent) return null;
+    return generateTop100Enrichment(item.repo, readme, architecture, item.fallbackClassification);
+  });
   const previous = db.prepare('SELECT repo_id,rank FROM classic_top100_snapshots WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM classic_top100_snapshots WHERE snapshot_date < ?)').all(snapshotDate) as Array<{ repo_id: number; rank: number }>;
   const oldRank = new Map(previous.map((item) => [item.repo_id, item.rank]));
   const save = db.transaction(() => {
@@ -54,11 +54,14 @@ export async function generateTop100(snapshotDate = new Date().toISOString().sli
     const score = db.prepare('INSERT OR REPLACE INTO classic_project_scores VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     const snapshot = db.prepare('INSERT INTO classic_top100_snapshots VALUES (?,?,?,?,?,?,?,?)');
     const updateClassification = db.prepare('UPDATE repositories SET primary_category=?,secondary_categories=?,function_tags=?,product_forms=?,platform_tags=?,target_users=?,deployment_modes=?,deployment_difficulty=?,hot_reason_tags=?,maturity_tag=?,cost_tags=?,license_tag=?,commercial_use_tags=?,privacy_tags=?,classification_confidence=?,classification_reason=?,classification_source=?,classification_source_hash=?,classified_at=? WHERE id=?');
+    const updateSummary = db.prepare("UPDATE repositories SET hot_summary_zh=?,hot_summary_zh_generated_at=?,hot_summary_zh_status='generated',hot_summary_zh_source_hash=?,hot_summary_zh_source=?,hot_summary_zh_model=? WHERE id=?");
     scored.forEach((item, index) => {
+      const enrichment = enrichments[index]; const generatedClassification = enrichment?.classification; const classification = generatedClassification ?? item.fallbackClassification;
       const details = { adoption: item.adoption, longevity: item.longevity, ecosystem: item.ecosystem, community: item.community, engineering: item.engineering, currentHot: item.currentHot, dataCoverage: item.confidence };
       score.run(item.repo.id, item.adoption, item.longevity, item.ecosystem, item.community, item.engineering, item.currentHot, item.classic, item.currentHot, item.risk, item.total, item.confidence, JSON.stringify(details), JSON.stringify(item.risk ? ['License 信息不足'] : []), VERSION, now);
-      if (item.classification && !item.repo.classification_locked) updateClassification.run(item.classification.primaryCategory, JSON.stringify(item.classification.secondaryCategories), JSON.stringify(item.classification.functionTags), JSON.stringify(item.classification.productForms), JSON.stringify(item.classification.platformTags), JSON.stringify(item.classification.targetUsers), JSON.stringify(item.classification.deploymentModes), item.classification.deploymentDifficulty, JSON.stringify(item.classification.hotReasonTags), item.classification.maturity, JSON.stringify(item.classification.costTags), item.classification.license, JSON.stringify(item.classification.commercialUseTags), JSON.stringify(item.classification.privacyTags), item.classification.confidence, item.classification.reason, item.classification.source, item.classification.sourceHash, now, item.repo.id);
-      snapshot.run(snapshotDate, index + 1, item.repo.id, item.total, oldRank.has(Number(item.repo.id)) ? oldRank.get(Number(item.repo.id))! - index - 1 : null, item.primaryCategory, VERSION, now);
+      if (generatedClassification) updateClassification.run(classification.primaryCategory, JSON.stringify(classification.secondaryCategories), JSON.stringify(classification.functionTags), JSON.stringify(classification.productForms), JSON.stringify(classification.platformTags), JSON.stringify(classification.targetUsers), JSON.stringify(classification.deploymentModes), classification.deploymentDifficulty, JSON.stringify(classification.hotReasonTags), classification.maturity, JSON.stringify(classification.costTags), classification.license, JSON.stringify(classification.commercialUseTags), JSON.stringify(classification.privacyTags), classification.confidence, classification.reason, classification.source, classification.sourceHash, now, item.repo.id);
+      if (enrichment) updateSummary.run(enrichment.summary, now, hotSummarySourceHash(item.repo), enrichment.summarySource, enrichment.model, item.repo.id);
+      snapshot.run(snapshotDate, index + 1, item.repo.id, item.total, oldRank.has(Number(item.repo.id)) ? oldRank.get(Number(item.repo.id))! - index - 1 : null, String(generatedClassification?.primaryCategory ?? item.repo.primary_category ?? classification.primaryCategory), VERSION, now);
     });
-  }); save(); return { snapshotDate, count: scored.length };
+  }); save(); return { snapshotDate, count: scored.length, summariesGenerated: enrichments.filter(Boolean).length };
 }

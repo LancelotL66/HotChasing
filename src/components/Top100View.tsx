@@ -117,7 +117,7 @@ export function Top100View() {
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, []);
-  const generate = async () => {
+  const generate = async (force = false) => {
     setLoading(true);
     setMessage("");
     setUpdateProgress(8);
@@ -132,7 +132,7 @@ export function Top100View() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: "{}",
+          body: JSON.stringify({ force }),
         },
       );
       if (!response.ok) throw new Error(`请求失败：${response.status}`);
@@ -213,14 +213,17 @@ export function Top100View() {
           </p>
         </div>
         <button
-          onClick={generate}
+          onClick={() => generate()}
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-white disabled:opacity-50"
         >
           <Trophy className="h-4 w-4" />
-          更新 Top100
+          获取今日 Top100
         </button>
       </div>
+      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/20 dark:text-amber-100">
+        首次获取当天榜单会采集 GitHub 数据，并为新入榜或内容变化项目生成 AI 分类和中文总结，消耗较多 Token，可能需要数分钟。完成后将归档；当天再次获取会直接读取快照，不重复调用 AI。
+      </p>
       <div className="space-y-1">
         <p className="text-xs text-gray-500">
           上次更新：{lastUpdated ? new Date(lastUpdated).toLocaleString("zh-CN") : "尚未生成"}

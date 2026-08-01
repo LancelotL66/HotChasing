@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { getDb } from '../db/connection.js';
-import { generateTop100, mapWithConcurrency } from '../classic-ranking/rankingService.js';
-import { generateHotSummary } from '../discovery/aiGateway.js';
+import { generateTop100 } from '../classic-ranking/rankingService.js';
 import { ruleHotSummary } from '../discovery/summaryService.js';
 const router = Router();
-router.post('/api/classic-ranking/generate-top100', async (_req, res) => {
+router.post('/api/classic-ranking/generate-top100', async (req, res) => {
   try {
-    const recent = new Date(); recent.setDate(recent.getDate() - 365); const queries = [`stars:>=10000`, `created:>${recent.toISOString().slice(0, 10)} stars:>=100`]; const db = getDb();
+    const snapshotDate = new Date().toISOString().slice(0, 10); const force = req.body?.force === true; const db = getDb();
+    const existing = db.prepare('SELECT COUNT(*) AS count FROM classic_top100_snapshots WHERE snapshot_date=?').get(snapshotDate) as { count: number };
+    if (existing.count && !force) return res.json({ snapshotDate, count: existing.count, summariesGenerated: 0, archived: true });
+    const recent = new Date(); recent.setDate(recent.getDate() - 365); const queries = [`stars:>=10000`, `created:>${recent.toISOString().slice(0, 10)} stars:>=100`];
     const settled = await Promise.allSettled(queries.map(async (query) => { const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=100`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'HotChasing' } }); if (!response.ok) throw new Error(`GitHub Search returned ${response.status}`); return response.json() as Promise<{ items?: Array<Record<string, unknown>> }>; }));
     const responses = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []); const items = [...new Map(responses.flatMap((payload) => payload.items ?? []).map((repo) => [Number(repo.id), repo])).values()]; const now = new Date().toISOString();
     const upsert = db.prepare(`INSERT INTO repositories (id,name,full_name,description,html_url,stargazers_count,forks_count,language,created_at,updated_at,pushed_at,owner_login,owner_avatar_url,topics)
@@ -16,13 +18,8 @@ router.post('/api/classic-ranking/generate-top100', async (_req, res) => {
     if (items.length) { const save = db.transaction(() => items.forEach((repo, index) => { const owner = repo.owner as Record<string, unknown> | undefined; upsert.run({ id: repo.id, name: repo.name, full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stargazers_count: repo.stargazers_count ?? 0, forks_count: repo.forks_count ?? 0, language: repo.language, created_at: repo.created_at, updated_at: repo.updated_at, pushed_at: repo.pushed_at, owner_login: owner?.login ?? '', owner_avatar_url: owner?.avatar_url ?? '', topics: JSON.stringify(repo.topics ?? []) }); snapshot.run(repo.id, now, repo.stargazers_count ?? 0, repo.forks_count ?? 0, repo.open_issues_count ?? 0, index + 1, 'top100_candidates'); })); save(); }
     const existingCandidates = db.prepare("SELECT COUNT(*) AS count FROM metric_snapshots WHERE source_channel='top100_candidates'").get() as { count: number };
     if (!items.length && !existingCandidates.count) throw new Error('GitHub 候选采集失败且本地没有可用的 Top100 候选池');
-    const ranking = await generateTop100();
-    const rankedRepos = db.prepare(`SELECT r.* FROM classic_top100_snapshots s JOIN repositories r ON r.id=s.repo_id WHERE s.snapshot_date=? ORDER BY s.rank`).all(ranking.snapshotDate) as Array<Record<string, unknown>>;
-    const summaries = await mapWithConcurrency(rankedRepos, 4, generateHotSummary);
-    const updateSummary = db.prepare("UPDATE repositories SET hot_summary_zh=?,hot_summary_zh_generated_at=?,hot_summary_zh_status='generated',hot_summary_zh_source_hash=?,hot_summary_zh_source=?,hot_summary_zh_model=? WHERE id=?");
-    const saveSummaries = db.transaction(() => summaries.forEach((summary, index) => updateSummary.run(summary.summary, new Date().toISOString(), summary.sourceHash, summary.source, summary.model, rankedRepos[index].id)));
-    saveSummaries();
-    res.status(201).json({ ...ranking, summariesGenerated: rankedRepos.length });
+    const ranking = await generateTop100(snapshotDate);
+    res.status(201).json({ ...ranking, archived: false });
   } catch (error) { res.status(502).json({ error: error instanceof Error ? error.message : 'Top100 generation failed' }); }
 });
 router.get('/api/classic-ranking/top100/:date?', (req, res) => {

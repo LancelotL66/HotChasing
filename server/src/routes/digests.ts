@@ -3,17 +3,20 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/connection.js';
 import { hotSummarySourceHash } from '../discovery/summaryService.js';
-import { generateHotSummary, generateProjectClassification } from '../discovery/aiGateway.js';
-import { classifyProjectByRules, classificationSourceHash, fetchRepositoryArchitecture, fetchRepositoryReadme, PRIMARY_CATEGORIES } from '../discovery/classificationService.js';
+import { generateHotSummary, generateProjectClassification, getActiveAIConcurrency } from '../discovery/aiGateway.js';
+import { classifyProjectByRules, fetchRepositoryEnrichment, PRIMARY_CATEGORIES } from '../discovery/classificationService.js';
+import { mapWithConcurrency } from '../classic-ranking/rankingService.js';
 
 const router = Router();
 const generateSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), maxItems: z.number().int().min(12).max(40).default(30) });
+const rebuildSchema = generateSchema.extend({ force: z.boolean().default(false) });
 
-router.post('/api/digests/generate', async (req, res) => {
-  const parsed = generateSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid digest request', code: 'INVALID_DIGEST_REQUEST' });
-  const db = getDb(); const digestDate = parsed.data.date ?? new Date().toISOString().slice(0, 10); const now = new Date().toISOString(); const nextDigestDate = new Date(`${digestDate}T00:00:00.000Z`); nextDigestDate.setUTCDate(nextDigestDate.getUTCDate() + 1);
-  const existing = db.prepare('SELECT id FROM daily_digests WHERE digest_date=?').get(digestDate) as { id: string } | undefined; const id = existing?.id ?? randomUUID();
+async function generateDigest(digestDate: string, maxItems: number, force = false) {
+  const db = getDb();
+  const existing = db.prepare('SELECT id,status FROM daily_digests WHERE digest_date=?').get(digestDate) as { id: string; status: string } | undefined;
+  if (existing?.status === 'generated' && !force) return { id: existing.id, digestDate, items: 0, archived: true };
+  const now = new Date().toISOString(); const nextDigestDate = new Date(`${digestDate}T00:00:00.000Z`); nextDigestDate.setUTCDate(nextDigestDate.getUTCDate() + 1);
+  const id = existing?.id ?? randomUUID();
   // The shared repositories table also stores users' starred repositories.
   // A digest must only include repositories that discovery explicitly captured.
   const candidateProjects = db.prepare(`
@@ -32,29 +35,29 @@ router.post('/api/digests/generate', async (req, res) => {
     )
     LEFT JOIN project_scores ps ON ps.repo_id = r.id
     WHERE r.created_at >= datetime('now', '-120 days')
-    ORDER BY final_score DESC, latest.ranking ASC, r.updated_at DESC
+    ORDER BY final_score DESC, latest.ranking ASC, r.updated_at DESC, r.id ASC
     LIMIT ?
-  `).all(`${digestDate}T00:00:00.000Z`, nextDigestDate.toISOString(), Math.min(48, Math.max(parsed.data.maxItems + PRIMARY_CATEGORIES.length, 36))) as Array<Record<string, unknown>>;
-  const classifications = await Promise.all(candidateProjects.map(async (project) => {
-    const [readme, architecture] = await Promise.all([fetchRepositoryReadme(String(project.full_name ?? '')), fetchRepositoryArchitecture(String(project.full_name ?? ''))]);
-    const hash = classificationSourceHash(project, readme, architecture);
-    if (project.classification_source_hash === hash && project.primary_category) return { project, classification: null };
-    const fallback = classifyProjectByRules(project);
-    return { project, classification: await generateProjectClassification(project, readme, architecture, fallback) };
-  }));
-  const classificationFor = (project: Record<string, unknown>) => classifications.find((item) => item.project.id === project.id)?.classification;
+  `).all(`${digestDate}T00:00:00.000Z`, nextDigestDate.toISOString(), Math.min(48, Math.max(maxItems + PRIMARY_CATEGORIES.length, 36))) as Array<Record<string, unknown>>;
   const dailyCandidates = candidateProjects;
-  const selectedDaily = PRIMARY_CATEGORIES.map((category) => dailyCandidates.find((project) => (classificationFor(project)?.primaryCategory ?? project.primary_category) === category)).filter((project): project is Record<string, unknown> => Boolean(project));
-  const dailyLimit = parsed.data.maxItems;
+  // Select the complete digest with saved classifications or rules first. Only
+  // final items need README fetching and AI enrichment.
+  const categoryFor = (project: Record<string, unknown>) => String(project.primary_category ?? classifyProjectByRules(project).primaryCategory);
+  const selectedDaily = PRIMARY_CATEGORIES.map((category) => dailyCandidates.find((project) => categoryFor(project) === category)).filter((project): project is Record<string, unknown> => Boolean(project));
+  const dailyLimit = maxItems;
   const remainingDaily = dailyCandidates.filter((project) => !selectedDaily.includes(project)).slice(0, Math.max(0, dailyLimit - selectedDaily.length));
   const projects = [...selectedDaily, ...remainingDaily];
-  const summaries = await Promise.all(projects.map(async (project) => {
+  const classifications = await mapWithConcurrency(projects, getActiveAIConcurrency(), async (project) => {
+    if (project.primary_category) return { project, classification: null };
+    const { readme, architecture } = await fetchRepositoryEnrichment(project);
+    return { project, classification: await generateProjectClassification(project, readme, architecture, classifyProjectByRules(project)) };
+  });
+  const summaries = await mapWithConcurrency(projects, getActiveAIConcurrency(), async (project) => {
     const hash = hotSummarySourceHash(project);
-    if (project.hot_summary_zh_source_hash === hash && project.hot_summary_zh && project.hot_summary_zh_source === 'ai') {
-      return { project, summary: String(project.hot_summary_zh), source: 'ai' as const, model: project.hot_summary_zh_model as string | null, sourceHash: hash };
+    if (project.hot_summary_zh && project.hot_summary_zh_source_hash === hash) {
+      return { project, summary: String(project.hot_summary_zh), source: project.hot_summary_zh_source === 'ai' ? 'ai' as const : 'rule' as const, model: project.hot_summary_zh_model as string | null, sourceHash: project.hot_summary_zh_source_hash as string ?? hash };
     }
     return { project, ...(await generateHotSummary(project)) };
-  }));
+  });
   const save = db.transaction(() => {
     db.prepare('INSERT INTO daily_digests (id,digest_date,title,summary,generated_at,status) VALUES (?,?,?,?,?,?) ON CONFLICT(digest_date) DO UPDATE SET title=excluded.title,summary=excluded.summary,generated_at=excluded.generated_at,status=excluded.status').run(id, digestDate, `${digestDate} 工具雷达`, `收录 ${projects.length} 个值得关注的开源项目。`, now, 'generated');
     db.prepare('DELETE FROM daily_digest_items WHERE digest_id=?').run(id);
@@ -72,7 +75,32 @@ router.post('/api/digests/generate', async (req, res) => {
       add.run(id, project.id, primaryCategory, index + 1, index < 5 ? '今日值得关注：基于热度评分、频道排名和近期活跃度入选' : '基于热度评分和 Star 指标入选', project.final_score);
     });
   }); save();
-  res.status(201).json({ id, digestDate, items: projects.length });
+  return { id, digestDate, items: projects.length, archived: false };
+}
+
+router.post('/api/digests/generate', async (req, res) => {
+  const parsed = rebuildSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid digest request', code: 'INVALID_DIGEST_REQUEST' });
+  try {
+    const result = await generateDigest(parsed.data.date ?? new Date().toISOString().slice(0, 10), parsed.data.maxItems, parsed.data.force);
+    res.status(result.archived ? 200 : 201).json(result);
+  } catch (error) {
+    res.status(502).json({ error: error instanceof Error ? error.message : 'Digest generation failed' });
+  }
+});
+
+router.post('/api/digests/rebuild-all', async (_req, res) => {
+  try {
+    const dates = getDb().prepare("SELECT digest_date FROM daily_digests WHERE status='generated' ORDER BY digest_date ASC").all() as Array<{ digest_date: string }>;
+    const rebuilt: string[] = []; const failed: Array<{ date: string; error: string }> = [];
+    for (const { digest_date } of dates) {
+      try { await generateDigest(digest_date, 30, true); rebuilt.push(digest_date); }
+      catch (error) { failed.push({ date: digest_date, error: error instanceof Error ? error.message : 'Unknown error' }); }
+    }
+    res.json({ rebuilt: rebuilt.length, dates: rebuilt, failed });
+  } catch (error) {
+    res.status(502).json({ error: error instanceof Error ? error.message : 'Digest rebuild failed' });
+  }
 });
 
 router.get('/api/digests', (_req, res) => res.json(getDb().prepare('SELECT * FROM daily_digests ORDER BY digest_date DESC').all()));

@@ -93,6 +93,17 @@ const migrations: Record<number, (db: Database.Database) => void> = {
     db.prepare("UPDATE repositories SET primary_category='其他 / 待分类', classification_source_hash=NULL WHERE primary_category='商业与金融' AND classification_locked=0").run();
     db.prepare("UPDATE taxonomy_tags SET enabled=0,updated_at=? WHERE dimension='primary_category' AND name='商业与金融'").run(new Date().toISOString());
   },
+  7: (db) => {
+    // Existing databases passed the initial schema migration before these
+    // enrichment cache fields were introduced.
+    const columns = db.prepare('PRAGMA table_info(repositories)').all() as Array<{ name: string }>;
+    const add = (name: string, definition: string) => {
+      if (!columns.some((column) => column.name === name)) db.exec(`ALTER TABLE repositories ADD COLUMN ${name} ${definition}`);
+    };
+    add('enrichment_readme', 'TEXT');
+    add('enrichment_architecture', 'TEXT');
+    add('enrichment_updated_at', 'TEXT');
+  },
 };
 
 export function runMigrations(db: Database.Database): void {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { getDb } from '../db/connection.js';
 
 export const PRIMARY_CATEGORIES = ['AI 与 Agent', '开发者工具', '数据与数据库', '基础设施与 DevOps', '效率与自动化', '设计与内容创作', '安全与隐私', '桌面与移动应用', '学习与研究', '其他 / 待分类'] as const;
 export type PrimaryCategory = typeof PRIMARY_CATEGORIES[number];
@@ -62,6 +63,25 @@ export async function fetchRepositoryArchitecture(fullName: string): Promise<str
     const names = entries.slice(0, 80).map((entry) => `${entry.type === 'dir' ? 'dir' : 'file'}:${entry.name ?? ''}`);
     return names.join('\n');
   } catch { return ''; }
+}
+
+export async function fetchRepositoryEnrichment(repo: Record<string, unknown>): Promise<{ readme: string; architecture: string }> {
+  const updatedAt = typeof repo.updated_at === 'string' ? repo.updated_at : '';
+  const cachedAt = typeof repo.enrichment_updated_at === 'string' ? repo.enrichment_updated_at : '';
+  if (updatedAt && updatedAt === cachedAt) {
+    return {
+      readme: typeof repo.enrichment_readme === 'string' ? repo.enrichment_readme : '',
+      architecture: typeof repo.enrichment_architecture === 'string' ? repo.enrichment_architecture : '',
+    };
+  }
+
+  const fullName = String(repo.full_name ?? '');
+  const [readme, architecture] = await Promise.all([fetchRepositoryReadme(fullName), fetchRepositoryArchitecture(fullName)]);
+  if (repo.id !== undefined) {
+    getDb().prepare('UPDATE repositories SET enrichment_readme=?,enrichment_architecture=?,enrichment_updated_at=? WHERE id=?')
+      .run(readme, architecture, updatedAt || null, repo.id);
+  }
+  return { readme, architecture };
 }
 
 export function classifyProjectByRules(repo: Record<string, unknown>): ProjectClassification {
