@@ -93,16 +93,29 @@ export function Top100View() {
   const activeAIConfig = useAppStore((state) => state.activeAIConfig);
   const language = useAppStore((state) => state.language);
   const load = async () => {
-    if (!backend.backendUrl) return;
+    if (!backend.backendUrl) throw new Error("后端尚未就绪");
     const response = await fetch(
       `${backend.backendUrl}/classic-ranking/top100`,
     );
+    if (!response.ok) throw new Error(`请求失败：${response.status}`);
     const data = (await response.json()) as { items: TopItem[]; generatedAt: string | null };
     setItems(data.items);
     setLastUpdated(data.generatedAt);
   };
   useEffect(() => {
-    load().catch(() => setMessage("Top100 加载失败"));
+    let timer: number | undefined;
+    let attempts = 0;
+    const loadWhenBackendReady = () => {
+      if (!backend.backendUrl) {
+        if (attempts++ < 20) timer = window.setTimeout(loadWhenBackendReady, 250);
+        return;
+      }
+      void load().catch(() => setMessage("Top100 加载失败"));
+    };
+    loadWhenBackendReady();
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
   const generate = async () => {
     setLoading(true);

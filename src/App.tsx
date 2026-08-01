@@ -15,9 +15,7 @@ import { DailyDigestView } from './components/DailyDigestView';
 import { Top100View } from './components/Top100View';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppStore } from './store/useAppStore';
-import { useAutoUpdateCheck } from './hooks/useAutoUpdateCheck';
 import { logger } from './services/logger';
-import { UpdateNotificationBanner } from './components/UpdateNotificationBanner';
 import { backend } from './services/backendAdapter';
 import { syncFromBackend, startAutoSync, stopAutoSync } from './services/autoSync';
 import {
@@ -125,8 +123,6 @@ function App() {
     repositories,
     setSelectedCategory,
   } = useAppStore();
-
-  useAutoUpdateCheck();
 
   // Restore persisted frontend debug level at startup so capture is active
   // app-wide, not only after DiagnosticLogsPanel mounts.
@@ -244,7 +240,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-light-bg dark:bg-marketing-black text-gray-900 dark:text-text-primary transition-colors duration-200">
-      <UpdateNotificationBanner />
       <Header />
       <main className="max-w-[1280px] mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         {currentViewContent}

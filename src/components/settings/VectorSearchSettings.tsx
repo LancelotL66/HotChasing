@@ -1205,7 +1205,7 @@ export const VectorSearchSettings: React.FC<VectorSearchSettingsProps> = ({ t })
             <p className="text-xs text-gray-500 dark:text-gray-500">
               {t('详细部署指南请参考', 'For detailed instructions, see')}{' '}
               <a
-                href="https://github.com/AmintaCCCP/GithubStarsManager/blob/main/cloudflare-worker/README.md"
+                href="https://github.com/LancelotL66/HotChasing/blob/main/cloudflare-worker/README.md"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-purple-500 hover:underline"

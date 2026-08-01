@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/connection.js';
 import { generateTop100, mapWithConcurrency } from '../classic-ranking/rankingService.js';
 import { generateHotSummary } from '../discovery/aiGateway.js';
+import { ruleHotSummary } from '../discovery/summaryService.js';
 const router = Router();
 router.post('/api/classic-ranking/generate-top100', async (_req, res) => {
   try {
@@ -27,9 +28,10 @@ router.post('/api/classic-ranking/generate-top100', async (_req, res) => {
 router.get('/api/classic-ranking/top100/:date?', (req, res) => {
   const db = getDb(); const date = req.params.date ?? (db.prepare('SELECT MAX(snapshot_date) AS date FROM classic_top100_snapshots').get() as { date?: string }).date;
   if (!date) return res.json({ snapshotDate: null, items: [] });
-  const items = db.prepare(`SELECT s.*,r.full_name,r.html_url,r.description,r.language,r.stargazers_count,r.forks_count,r.created_at,r.updated_at,r.hot_summary_zh,r.primary_category,r.function_tags,r.product_forms,r.platform_tags,r.deployment_difficulty,r.classification_reason,c.*
+  const rows = db.prepare(`SELECT s.*,r.name,r.full_name,r.html_url,r.description,r.language,r.stargazers_count,r.forks_count,r.created_at,r.updated_at,r.topics,r.hot_summary_zh,r.primary_category,r.function_tags,r.product_forms,r.platform_tags,r.deployment_difficulty,r.classification_reason,c.*
     FROM classic_top100_snapshots s JOIN repositories r ON r.id=s.repo_id JOIN classic_project_scores c ON c.repo_id=s.repo_id
-    WHERE s.snapshot_date=? ORDER BY s.rank`).all(date);
+    WHERE s.snapshot_date=? ORDER BY s.rank`).all(date) as Array<Record<string, unknown>>;
+  const items = rows.map((item) => ({ ...item, hot_summary_zh: item.hot_summary_zh || ruleHotSummary(item) }));
   const generatedAt = db.prepare('SELECT MAX(generated_at) AS generatedAt FROM classic_top100_snapshots WHERE snapshot_date=?').get(date) as { generatedAt?: string };
   res.json({ snapshotDate: date, generatedAt: generatedAt.generatedAt ?? null, items });
 });

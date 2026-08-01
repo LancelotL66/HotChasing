@@ -78,9 +78,53 @@ router.post('/api/digests/generate', async (req, res) => {
 router.get('/api/digests', (_req, res) => res.json(getDb().prepare('SELECT * FROM daily_digests ORDER BY digest_date DESC').all()));
 router.get('/api/taxonomy', (_req, res) => res.json(getDb().prepare('SELECT dimension,name,aliases,sort_order FROM taxonomy_tags WHERE enabled=1 ORDER BY dimension,sort_order').all()));
 router.get('/api/digests/:date', (req, res) => {
-  const digest = getDb().prepare('SELECT * FROM daily_digests WHERE digest_date=?').get(req.params.date) as Record<string, unknown> | undefined;
-  if (!digest) return res.status(404).json({ error: 'Digest not found', code: 'DIGEST_NOT_FOUND' });
-  const items = getDb().prepare(`SELECT i.*,r.name,r.full_name,r.html_url,r.description,r.language,r.stargazers_count,r.forks_count,r.owner_login,r.owner_avatar_url,r.created_at,r.updated_at,r.pushed_at,r.topics,r.hot_summary_zh,r.hot_summary_zh_status,r.hot_summary_zh_source,r.primary_category,r.secondary_categories,r.function_tags,r.product_forms,r.platform_tags,r.target_users,r.deployment_modes,r.deployment_difficulty,r.hot_reason_tags,r.cost_tags,r.license_tag,r.privacy_tags,r.classification_confidence,r.classification_reason,r.classification_source,EXISTS(SELECT 1 FROM classic_top100_snapshots top WHERE top.repo_id=r.id AND top.snapshot_date=(SELECT MAX(snapshot_date) FROM classic_top100_snapshots)) AS is_top100 FROM daily_digest_items i JOIN repositories r ON r.id=i.repo_id WHERE i.digest_id=? ORDER BY i.ranking`).all(digest.id);
-  res.json({ ...digest, items });
+  const db = getDb();
+  const digest = db.prepare('SELECT * FROM daily_digests WHERE digest_date=?').get(req.params.date) as Record<string, unknown> | undefined;
+  if (digest) {
+    const items = db.prepare(`SELECT i.*,r.name,r.full_name,r.html_url,r.description,r.language,r.stargazers_count,r.forks_count,r.owner_login,r.owner_avatar_url,r.created_at,r.updated_at,r.pushed_at,r.topics,r.hot_summary_zh,r.hot_summary_zh_status,r.hot_summary_zh_source,r.primary_category,r.secondary_categories,r.function_tags,r.product_forms,r.platform_tags,r.target_users,r.deployment_modes,r.deployment_difficulty,r.hot_reason_tags,r.cost_tags,r.license_tag,r.privacy_tags,r.classification_confidence,r.classification_reason,r.classification_source,EXISTS(SELECT 1 FROM classic_top100_snapshots top WHERE top.repo_id=r.id AND top.snapshot_date=(SELECT MAX(snapshot_date) FROM classic_top100_snapshots)) AS is_top100 FROM daily_digest_items i JOIN repositories r ON r.id=i.repo_id WHERE i.digest_id=? ORDER BY i.ranking`).all(digest.id);
+    return res.json({ ...digest, items });
+  }
+
+  const dayStart = `${req.params.date}T00:00:00.000Z`;
+  const dayEnd = new Date(dayStart);
+  if (Number.isNaN(dayEnd.getTime())) return res.status(400).json({ error: 'Invalid digest date', code: 'INVALID_DIGEST_DATE' });
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const projects = db.prepare(`
+    SELECT r.*,COALESCE(ps.final_score,0) AS final_score,latest.source_channel,latest.ranking,
+      EXISTS(SELECT 1 FROM classic_top100_snapshots top WHERE top.repo_id=r.id AND top.snapshot_date=(SELECT MAX(snapshot_date) FROM classic_top100_snapshots)) AS is_top100
+    FROM repositories r
+    JOIN (SELECT repo_id,MAX(captured_at) AS captured_at FROM metric_snapshots WHERE captured_at>=? AND captured_at<? GROUP BY repo_id) captured ON captured.repo_id=r.id
+    JOIN metric_snapshots latest ON latest.id=(SELECT MAX(snapshot.id) FROM metric_snapshots snapshot WHERE snapshot.repo_id=captured.repo_id AND snapshot.captured_at=captured.captured_at)
+    LEFT JOIN project_scores ps ON ps.repo_id=r.id
+    ORDER BY final_score DESC,latest.ranking ASC,r.updated_at DESC
+  `).all(dayStart, dayEnd.toISOString()) as Array<Record<string, unknown>>;
+  const items = projects.map((project, index) => {
+    const storedCategory = typeof project.primary_category === 'string' && PRIMARY_CATEGORIES.includes(project.primary_category as typeof PRIMARY_CATEGORIES[number]);
+    const fallback = storedCategory ? null : classifyProjectByRules(project);
+    return {
+      repo_id: project.id, name: project.name, full_name: project.full_name, html_url: project.html_url,
+      description: project.description, language: project.language, stargazers_count: project.stargazers_count,
+      forks_count: project.forks_count, owner_login: project.owner_login, owner_avatar_url: project.owner_avatar_url,
+      created_at: project.created_at, updated_at: project.updated_at, pushed_at: project.pushed_at, topics: project.topics,
+      hot_summary_zh: project.hot_summary_zh, hot_summary_zh_status: project.hot_summary_zh_status ?? 'pending', hot_summary_zh_source: project.hot_summary_zh_source ?? null,
+      section: fallback?.primaryCategory ?? project.primary_category, ranking: index + 1,
+      reason: `当日由 ${project.source_channel} 频道采集`, score: project.final_score,
+      primary_category: fallback?.primaryCategory ?? project.primary_category,
+      secondary_categories: fallback ? JSON.stringify(fallback.secondaryCategories) : project.secondary_categories,
+      function_tags: fallback ? JSON.stringify(fallback.functionTags) : project.function_tags,
+      product_forms: fallback ? JSON.stringify(fallback.productForms) : project.product_forms,
+      platform_tags: fallback ? JSON.stringify(fallback.platformTags) : project.platform_tags,
+      target_users: fallback ? JSON.stringify(fallback.targetUsers) : project.target_users,
+      deployment_modes: fallback ? JSON.stringify(fallback.deploymentModes) : project.deployment_modes,
+      deployment_difficulty: fallback?.deploymentDifficulty ?? project.deployment_difficulty,
+      hot_reason_tags: fallback ? JSON.stringify(fallback.hotReasonTags) : project.hot_reason_tags,
+      maturity_tag: fallback?.maturity ?? project.maturity_tag, cost_tags: fallback ? JSON.stringify(fallback.costTags) : project.cost_tags,
+      license_tag: fallback?.license ?? project.license_tag, privacy_tags: fallback ? JSON.stringify(fallback.privacyTags) : project.privacy_tags,
+      classification_confidence: fallback?.confidence ?? project.classification_confidence,
+      classification_reason: fallback?.reason ?? project.classification_reason,
+      classification_source: fallback?.source ?? project.classification_source, is_top100: project.is_top100,
+    };
+  });
+  res.json({ id: `discovery-${req.params.date}`, digest_date: req.params.date, title: `${req.params.date} 发现项目`, summary: `该日期尚未生成日报，展示当日采集的 ${items.length} 个已分类项目。`, generated_at: dayStart, status: 'discovery-preview', items });
 });
 export default router;

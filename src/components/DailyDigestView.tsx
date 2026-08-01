@@ -14,6 +14,7 @@ import {
   type DailyDigest,
   type DailyDigestItem,
 } from "../services/digestApi";
+import { backend } from "../services/backendAdapter";
 import { ReadmeModal } from "./ReadmeModal";
 import { createGitHubApiService } from "../services/githubApiFactory";
 import { useAppStore } from "../store/useAppStore";
@@ -81,10 +82,10 @@ export function DailyDigestView() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [starringId, setStarringId] = useState<number | null>(null);
-  const [createdAfter, setCreatedAfter] = useState("");
-  const [updatedAfter, setUpdatedAfter] = useState("");
   const [timeMode, setTimeMode] = useState<"today" | "date" | "range">("today");
   const [selectedDate, setSelectedDate] = useState("");
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
   const [query, setQuery] = useState("");
   const [semanticResults, setSemanticResults] = useState<DailyDigestItem[] | null>(null);
   const githubToken = useAppStore((state) => state.githubToken);
@@ -99,8 +100,8 @@ export function DailyDigestView() {
     try {
       const list = await digestApi.list();
       setDigests(list);
-      if (list.length)
-        setDigest(await digestApi.get(date ?? list[0].digest_date));
+      const requestedDate = date ?? list[0]?.digest_date ?? new Date().toISOString().slice(0, 10);
+      setDigest(await digestApi.get(requestedDate));
       if (list.length) setLastUpdated(list[0].generated_at);
       setSemanticResults(null);
     } catch (err) {
@@ -110,21 +111,33 @@ export function DailyDigestView() {
     }
   };
   useEffect(() => {
-    load(new Date().toISOString().slice(0, 10));
+    let timer: number | undefined;
+    let attempts = 0;
+    const loadWhenBackendReady = () => {
+      if (!backend.backendUrl) {
+        if (attempts++ < 20) timer = window.setTimeout(loadWhenBackendReady, 250);
+        return;
+      }
+      void load(new Date().toISOString().slice(0, 10));
+    };
+    loadWhenBackendReady();
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
   const showToday = () => {
     setTimeMode("today");
     setSelectedDate("");
-    setCreatedAfter("");
-    setUpdatedAfter("");
+    setRangeStart("");
+    setRangeEnd("");
     setSemanticResults(null);
     load(new Date().toISOString().slice(0, 10));
   };
   const selectArchiveDate = (date: string) => {
     setTimeMode("date");
     setSelectedDate(date);
-    setCreatedAfter("");
-    setUpdatedAfter("");
+    setRangeStart("");
+    setRangeEnd("");
     setSemanticResults(null);
     if (date) load(date);
   };
@@ -132,7 +145,54 @@ export function DailyDigestView() {
     setTimeMode("range");
     setSelectedDate("");
     setSemanticResults(null);
-    load(new Date().toISOString().slice(0, 10));
+  };
+  const loadRange = async (start: string, end: string) => {
+    if (!start || !end || start > end) return;
+    setLoading(true);
+    setMessage("");
+    try {
+      const dates = digests
+        .map((digest) => digest.digest_date)
+        .filter((date) => date >= start && date <= end);
+      const results = await Promise.all(dates.map((date) => digestApi.get(date)));
+      const items = results.flatMap((digest) =>
+        digest.items.map((item) => ({ ...item, reason: `${digest.digest_date} · ${item.reason}` })),
+      );
+      setDigest({
+        id: `range-${start}-${end}`,
+        digest_date: end,
+        title: `范围筛选：${start} - ${end}`,
+        summary: `展示 ${dates.length} 天日报中的 ${items.length} 个项目。`,
+        generated_at: results[0]?.generated_at ?? `${end}T00:00:00.000Z`,
+        status: "range",
+        items,
+      });
+      setSemanticResults(null);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "日报范围加载失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+  const selectRangeStart = (date: string) => {
+    setRangeStart(date);
+    setSemanticResults(null);
+    if (date && rangeEnd && date <= rangeEnd) void loadRange(date, rangeEnd);
+  };
+  const selectRangeEnd = (date: string) => {
+    setRangeEnd(date);
+    setSemanticResults(null);
+    if (rangeStart && date && rangeStart <= date) void loadRange(rangeStart, date);
+  };
+  const showAllDigests = () => {
+    const latest = digests[0]?.digest_date;
+    const earliest = digests.at(-1)?.digest_date;
+    if (!earliest || !latest) return;
+    setTimeMode("range");
+    setSelectedDate("");
+    setRangeStart(earliest);
+    setRangeEnd(latest);
+    void loadRange(earliest, latest);
   };
   const collectAndGenerate = async () => {
     setLoading(true);
@@ -184,10 +244,7 @@ export function DailyDigestView() {
   const filteredItems =
     digest?.items.filter(
       (item) =>
-        (selectedCategory === "全部" ||
-          item.primary_category === selectedCategory) &&
-        (!createdAfter || item.created_at.slice(0, 10) >= createdAfter) &&
-        (!updatedAfter || item.updated_at.slice(0, 10) >= updatedAfter),
+        selectedCategory === "全部" || item.primary_category === selectedCategory,
     ) ?? [];
   const visibleItems = semanticResults ?? filteredItems;
   const isStarred = (repoId: number) =>
@@ -359,85 +416,91 @@ export function DailyDigestView() {
           className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm disabled:opacity-50"
         >
           <Search className="h-4 w-4" />
-          AI 语义搜索（不更新日报）
+          AI 语义搜索
         </button>
       </div>
       <div className="flex flex-wrap gap-2">
         <button
           onClick={showToday}
-          className={`rounded-lg px-4 py-2 text-sm font-medium ${timeMode === "today" ? "bg-blue-600 text-white" : "border"}`}
+          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${timeMode === "today" ? "border-blue-400 bg-blue-500/15 text-blue-700 dark:text-blue-200" : "border-black/10 text-gray-600 hover:border-blue-300 hover:text-blue-700 dark:border-white/10 dark:text-gray-300 dark:hover:border-blue-400/60 dark:hover:text-blue-200"}`}
         >
           今日日报
         </button>
         <button
-          onClick={() => {
-            setTimeMode("date");
-            setSemanticResults(null);
-          }}
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${timeMode === "date" ? "bg-blue-600 text-white" : "border"}`}
+          onClick={enableRangeFilter}
+          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${timeMode === "range" ? "border-blue-400 bg-blue-500/15 text-blue-700 dark:text-blue-200" : "border-black/10 text-gray-600 hover:border-blue-300 hover:text-blue-700 dark:border-white/10 dark:text-gray-300 dark:hover:border-blue-400/60 dark:hover:text-blue-200"}`}
         >
-          <CalendarDays
-            className={`h-4 w-4 ${timeMode === "date" ? "text-white" : "text-gray-600 dark:text-gray-200"}`}
-          />
-          选择归档日期
+          范围筛选
         </button>
         <button
-          onClick={enableRangeFilter}
-          className={`rounded-lg px-4 py-2 text-sm font-medium ${timeMode === "range" ? "bg-blue-600 text-white" : "border"}`}
+          onClick={showAllDigests}
+          disabled={!digests.length || loading}
+          className="rounded-lg border border-black/10 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-blue-300 hover:text-blue-700 disabled:opacity-50 dark:border-white/10 dark:text-gray-300 dark:hover:border-blue-400/60 dark:hover:text-blue-200"
         >
-          项目时间范围筛选
+          显示全部日报
         </button>
       </div>
-      {timeMode === "date" && (
-        <div className="rounded-lg border border-black/10 bg-white px-4 py-3 dark:bg-white/5">
-          <label className="text-sm text-gray-500" htmlFor="digest-date">
-            日报归档（{digests.length} 天）
-          </label>
-          <input
-            id="digest-date"
-            type="date"
-            value={selectedDate}
-            min={digests.at(-1)?.digest_date}
-            max={digests[0]?.digest_date}
-            onChange={(event) => selectArchiveDate(event.target.value)}
-            className="ml-3 rounded border bg-transparent px-3 py-2 text-sm"
-          />
-        </div>
+      {timeMode !== "range" && (
+      <label
+        htmlFor="digest-date"
+        className="group flex cursor-pointer items-center justify-between gap-4 overflow-hidden rounded-xl border border-blue-200/80 bg-gradient-to-r from-blue-50 via-white to-cyan-50 px-4 py-3 shadow-sm transition-all hover:border-blue-400 hover:shadow-blue-500/10 dark:border-blue-400/20 dark:from-blue-950/40 dark:via-slate-950/70 dark:to-cyan-950/30 dark:hover:border-blue-400/50 dark:hover:shadow-blue-500/10"
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition-transform group-hover:scale-105">
+            <CalendarDays className="h-4 w-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-gray-900 dark:text-white">浏览指定日期</span>
+            <span className="block truncate text-xs text-gray-500 dark:text-gray-400">已生成日报 {digests.length} 天；其他日期显示当日采集项目</span>
+          </span>
+        </span>
+        <input
+          id="digest-date"
+          type="date"
+          value={selectedDate}
+          min={digests.at(-1)?.digest_date}
+          max={digests[0]?.digest_date}
+          onChange={(event) => selectArchiveDate(event.target.value)}
+          className="[color-scheme:light] w-[10.5rem] cursor-pointer rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-sm font-medium text-blue-950 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:[color-scheme:dark] dark:border-white/10 dark:bg-white/[0.07] dark:text-blue-100"
+        />
+      </label>
       )}
       {timeMode === "range" && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-black/10 bg-white px-4 py-3 text-sm dark:bg-white/5">
-          <label>
-            创建时间不早于{" "}
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200/80 bg-gradient-to-r from-blue-50 via-white to-cyan-50 px-4 py-3 text-sm dark:border-blue-400/20 dark:from-blue-950/40 dark:via-slate-950/70 dark:to-cyan-950/30">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-600/25">
+            <CalendarDays className="h-4 w-4 text-white" />
+          </span>
+          <label className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
+            起始日报
             <input
               type="date"
-              value={createdAfter}
-              onChange={(event) => {
-                setCreatedAfter(event.target.value);
-                setSemanticResults(null);
-              }}
-              className="ml-2 rounded border bg-transparent px-2 py-1"
+              value={rangeStart}
+              min={digests.at(-1)?.digest_date}
+              max={rangeEnd || digests[0]?.digest_date}
+              onChange={(event) => selectRangeStart(event.target.value)}
+              className="[color-scheme:light] cursor-pointer rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-sm font-medium text-blue-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:[color-scheme:dark] dark:border-white/10 dark:bg-white/[0.07] dark:text-blue-100"
             />
           </label>
-          <label>
-            最近更新不早于{" "}
+          <span className="text-blue-400">-</span>
+          <label className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
+            结束日报
             <input
               type="date"
-              value={updatedAfter}
-              onChange={(event) => {
-                setUpdatedAfter(event.target.value);
-                setSemanticResults(null);
-              }}
-              className="ml-2 rounded border bg-transparent px-2 py-1"
+              value={rangeEnd}
+              min={rangeStart || digests.at(-1)?.digest_date}
+              max={digests[0]?.digest_date}
+              onChange={(event) => selectRangeEnd(event.target.value)}
+              className="[color-scheme:light] cursor-pointer rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-sm font-medium text-blue-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:[color-scheme:dark] dark:border-white/10 dark:bg-white/[0.07] dark:text-blue-100"
             />
           </label>
-          {(createdAfter || updatedAfter) && (
+          {(rangeStart || rangeEnd) && (
             <button
               onClick={() => {
-                setCreatedAfter("");
-                setUpdatedAfter("");
+                setRangeStart("");
+                setRangeEnd("");
                 setSemanticResults(null);
               }}
-              className="text-blue-600"
+              className="ml-auto text-blue-600 hover:text-blue-500 dark:text-blue-300"
             >
               清除筛选
             </button>
@@ -477,7 +540,7 @@ export function DailyDigestView() {
               )}
               {items.map((item) => (
                 <article
-                  key={`${category}-${item.repo_id}`}
+                  key={`${category}-${item.repo_id}-${item.reason}`}
                   onClick={() => setReadmeRepository(toRepository(item))}
                   className={`cursor-pointer rounded-xl border bg-white p-5 shadow-sm transition-colors hover:border-blue-400 dark:bg-white/5 ${item.reason.startsWith("今日值得关注") ? "border-blue-500 ring-1 ring-blue-300 dark:ring-blue-700" : "border-black/10"}`}
                 >
