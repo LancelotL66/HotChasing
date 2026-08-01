@@ -488,7 +488,7 @@ class BackendAdapter {
   async fetchRepositories(): Promise<{ repositories: Repository[]; total: number }> {
     if (!this._backendUrl) throw new Error('Backend not available');
 
-    const res = await this.fetchWithRetry(`${this._backendUrl}/repositories?limit=10000`, {
+    const res = await this.fetchWithRetry(`${this._backendUrl}/repositories?scope=starred&limit=10000`, {
       headers: this.getAuthHeaders()
     }, 120000, 3);
     if (!res.ok) await this.throwTranslatedError(res, 'Fetch error');

@@ -249,6 +249,28 @@ describe('useAppStore repository performance guards', () => {
     });
   });
 
+  it('preserves the GitHub repository ID when adding a repository', () => {
+    const repo = createRepository(12345, { starred_at: '2026-01-04T00:00:00.000Z' });
+
+    useAppStore.getState().addRepository(repo);
+
+    expect(useAppStore.getState().repositories).toEqual([repo]);
+  });
+
+  it('repairs a stale local ID when adding the same GitHub repository again', () => {
+    const staleRepo = createRepository(99999, {
+      name: 'repo-12345',
+      full_name: 'owner/repo-12345',
+      html_url: 'https://github.com/owner/repo-12345',
+    });
+    const repo = createRepository(12345, { starred_at: '2026-01-04T00:00:00.000Z' });
+    useAppStore.setState({ repositories: [staleRepo], searchResults: [staleRepo] });
+
+    useAppStore.getState().addRepository(repo);
+
+    expect(useAppStore.getState().repositories[0].id).toBe(12345);
+  });
+
   it('does not notify subscribers when updateRepository receives an equivalent repository', () => {
     const repo = createRepository(1);
     useAppStore.setState({ repositories: [repo], searchResults: [repo] });

@@ -1347,11 +1347,10 @@ export const useAppStore = create<AppState & AppActions>()(
         let updatedRepositories;
         
         if (existingRepoIndex >= 0) {
-          // 如果存在，更新现有仓库（保留ID）
+          // 如果存在，使用 GitHub 的最新仓库 ID 更新现有记录。
           updatedRepositories = [...state.repositories];
           updatedRepositories[existingRepoIndex] = {
             ...repo,
-            id: updatedRepositories[existingRepoIndex].id,
             // 保留自定义编辑的内容
             custom_description: updatedRepositories[existingRepoIndex].custom_description,
             custom_tags: updatedRepositories[existingRepoIndex].custom_tags,
@@ -1361,15 +1360,9 @@ export const useAppStore = create<AppState & AppActions>()(
             subscribed_to_releases: updatedRepositories[existingRepoIndex].subscribed_to_releases,
           };
         } else {
-          // 如果不存在，添加新仓库（生成新ID）
-          // 使用 timestamp + random 确保唯一性，避免并发时的竞态条件
-          const timestamp = Date.now();
-          const random = Math.floor(Math.random() * 10000);
-          const maxExistingId = state.repositories.length > 0
-            ? Math.max(...state.repositories.map(r => r.id))
-            : 0;
-          const newId = Math.max(timestamp, maxExistingId + 1) + random;
-          updatedRepositories = [...state.repositories, { ...repo, id: newId }];
+          // GitHub repositories must retain their numeric ID so backend sync and
+          // digest relations continue to point at the same record.
+          updatedRepositories = [...state.repositories, repo];
         }
         
         return {

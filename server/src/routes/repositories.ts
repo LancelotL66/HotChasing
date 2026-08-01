@@ -73,28 +73,34 @@ router.get('/api/repositories', (req, res) => {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(10000, Math.max(1, parseInt(req.query.limit as string) || 100));
     const search = req.query.search as string | undefined;
+    const scope = req.query.scope as string | undefined;
     const offset = (page - 1) * limit;
 
     let sql = 'SELECT * FROM repositories';
     const params: unknown[] = [];
+    const whereClauses: string[] = [];
+
+    if (scope === 'starred') {
+      whereClauses.push('starred_at IS NOT NULL');
+    }
 
     if (search) {
       const escaped = search.replace(/[%_\\]/g, '\\$&');
-      sql += " WHERE name LIKE ? ESCAPE '\\' OR full_name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR ai_summary LIKE ? ESCAPE '\\' OR ai_tags LIKE ? ESCAPE '\\'";
+      whereClauses.push("(name LIKE ? ESCAPE '\\' OR full_name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR ai_summary LIKE ? ESCAPE '\\' OR ai_tags LIKE ? ESCAPE '\\')");
       const searchPattern = `%${escaped}%`;
       params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
+    const countParams = params.slice();
+    if (whereClauses.length > 0) sql += ` WHERE ${whereClauses.join(' AND ')}`;
     sql += ' ORDER BY stargazers_count DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     const repositories = rows.map(transformRepo);
 
-    const countSql = search
-      ? 'SELECT COUNT(*) as total FROM repositories WHERE name LIKE ? OR full_name LIKE ? OR description LIKE ? OR ai_summary LIKE ? OR ai_tags LIKE ?'
-      : 'SELECT COUNT(*) as total FROM repositories';
-    const countParams = search ? Array(5).fill(`%${search}%`) : [];
+    let countSql = 'SELECT COUNT(*) as total FROM repositories';
+    if (whereClauses.length > 0) countSql += ` WHERE ${whereClauses.join(' AND ')}`;
     const countRow = db.prepare(countSql).get(...countParams) as { total: number };
 
     res.json({ repositories, total: countRow.total, page, limit });
@@ -195,12 +201,12 @@ router.put('/api/repositories', (req, res) => {
         license = CASE WHEN @licenseProvided IS 1 THEN excluded.license ELSE repositories.license END
     `);
 
-    const deleteAllReleases = db.prepare('DELETE FROM releases');
-    const deleteAllRepositories = db.prepare('DELETE FROM repositories');
-    const deleteReleasesNotIn = (placeholders: string) =>
-      db.prepare(`DELETE FROM releases WHERE repo_id NOT IN (${placeholders})`);
-    const deleteRepositoriesNotIn = (placeholders: string) =>
-      db.prepare(`DELETE FROM repositories WHERE id NOT IN (${placeholders})`);
+    const deleteRemovedStarredReleases = (placeholders: string) =>
+      db.prepare(`DELETE FROM releases WHERE repo_id IN (
+        SELECT id FROM repositories WHERE starred_at IS NOT NULL AND id NOT IN (${placeholders})
+      )`);
+    const deleteRemovedStarredRepositories = (placeholders: string) =>
+      db.prepare(`DELETE FROM repositories WHERE starred_at IS NOT NULL AND id NOT IN (${placeholders})`);
 
     const upsert = db.transaction(() => {
       const isFullSync = Boolean(req.body?.isFullSync);
@@ -210,15 +216,9 @@ router.put('/api/repositories', (req, res) => {
           .map((repo) => repo.id)
           .filter((id): id is number => typeof id === 'number');
 
-        if (repoIds.length === 0) {
-          deleteAllReleases.run();
-          deleteAllRepositories.run();
-          return 0;
-        }
-
-        const placeholders = repoIds.map(() => '?').join(', ');
-        deleteReleasesNotIn(placeholders).run(...repoIds);
-        deleteRepositoriesNotIn(placeholders).run(...repoIds);
+        const placeholders = repoIds.length > 0 ? repoIds.map(() => '?').join(', ') : 'NULL';
+        deleteRemovedStarredReleases(placeholders).run(...repoIds);
+        deleteRemovedStarredRepositories(placeholders).run(...repoIds);
       }
 
       let count = 0;

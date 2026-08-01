@@ -173,8 +173,8 @@ export function DailyDigestView() {
       const repository = toRepository(item);
       const [owner, name] = repository.full_name.split("/");
       await createGitHubApiService(githubToken).starRepository(owner, name);
-      if (!repositories.some((repo) => repo.id === repository.id))
-        addRepository({ ...repository, starred_at: new Date().toISOString() });
+      addRepository({ ...repository, starred_at: new Date().toISOString() });
+      setMessage(`${item.full_name} 已加入 GitHub 星标仓库。`);
     } catch {
       setMessage("加星失败，请检查 GitHub Token 权限与网络。");
     } finally {
@@ -190,6 +190,8 @@ export function DailyDigestView() {
         (!updatedAfter || item.updated_at.slice(0, 10) >= updatedAfter),
     ) ?? [];
   const visibleItems = semanticResults ?? filteredItems;
+  const isStarred = (repoId: number) =>
+    repositories.some((repository) => repository.id === repoId && Boolean(repository.starred_at));
   const search = async () => {
     if (!query.trim()) {
       setSemanticResults(null);
@@ -533,11 +535,11 @@ export function DailyDigestView() {
                           event.stopPropagation();
                           star(item);
                         }}
-                        disabled={starringId === item.repo_id}
-                        title="添加 GitHub Star"
+                        disabled={starringId === item.repo_id || isStarred(item.repo_id)}
+                        title={isStarred(item.repo_id) ? "已添加 GitHub Star" : "添加 GitHub Star"}
                         className="rounded-md p-2 hover:bg-yellow-100 disabled:opacity-50 dark:hover:bg-yellow-500/20"
                       >
-                        <Star className="h-4 w-4" />
+                        <Star className={`h-4 w-4 ${isStarred(item.repo_id) ? "fill-yellow-400 text-yellow-500" : ""}`} />
                       </button>
                     </div>
                   </div>
