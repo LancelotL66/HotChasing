@@ -47,8 +47,6 @@ const STATUS_FILTERS = [
   "全部",
   "待分析",
   "分析完成",
-  "未 Fork",
-  "已 Fork",
   "计划未生成",
   "计划已生成",
   "测试队列中",
@@ -107,15 +105,11 @@ function projectStatus(project: ForkLabProject): string[] {
   const statuses: string[] = [];
   if (!project.assessment) statuses.push("待分析");
   if (project.assessment) statuses.push("分析完成");
-  if (project.fork_status === "NOT_REQUESTED" || !project.fork_status) statuses.push("未 Fork");
-  if (project.fork_status === "CREATING") statuses.push("Fork 创建中");
-  if (project.fork_status === "READY") statuses.push("已 Fork");
-  if (project.fork_status === "FAILED") statuses.push("Fork 失败");
   if (!project.plan) statuses.push("计划未生成");
   if (project.plan) statuses.push("计划已生成");
   if (["QUEUED", "TESTING"].includes(project.project_status)) statuses.push("测试队列中");
   if (project.project_status === "DEPLOYED") statuses.push("已部署");
-  if (project.project_status === "FAILED" || project.fork_status === "FAILED") statuses.push("需要人工处理");
+  if (project.project_status === "FAILED") statuses.push("需要人工处理");
   return statuses;
 }
 
@@ -123,10 +117,6 @@ function statusBadge(label: string) {
   const colorMap: Record<string, string> = {
     待分析: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200",
     分析完成: "bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300",
-    "未 Fork": "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300",
-    "Fork 创建中": "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-300",
-    "已 Fork": "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-300",
-    "Fork 失败": "bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300",
     计划未生成: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
     计划已生成: "bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300",
     测试队列中: "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300",
@@ -367,7 +357,7 @@ function ProjectCard({
   onRefresh: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [busy, setBusy] = useState<null | "assessment" | "plan" | "regenerate-plan" | "remove" | "fork">(null);
+  const [busy, setBusy] = useState<null | "assessment" | "plan" | "regenerate-plan" | "remove">(null);
   const [error, setError] = useState("");
   const [showPlanEditor, setShowPlanEditor] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -392,19 +382,6 @@ function ProjectCard({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const createFork = async () => {
-    setBusy("fork");
-    setError("");
-    try {
-      await forkLabApi.forkProject(project.id);
-      onRefresh(project.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "创建 Fork 失败");
     } finally {
       setBusy(null);
     }
@@ -541,22 +518,6 @@ function ProjectCard({
           <Github className="h-4 w-4" /> 上游
         </a>
         <button
-          onClick={() => void createFork()}
-          disabled={busy !== null || project.fork_status === "READY" || project.fork_status === "CREATING"}
-          className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm disabled:opacity-50 ${
-            project.fork_status === "READY"
-              ? "text-gray-400"
-              : "text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-500/10"
-          }`}
-        >
-          {busy === "fork" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitForkIcon />}
-          {project.fork_status === "READY"
-            ? "已 Fork"
-            : project.fork_status === "CREATING"
-              ? "Fork 创建中"
-              : "创建 GitHub Fork"}
-        </button>
-        <button
           onClick={remove}
           disabled={busy !== null}
           className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10"
@@ -590,18 +551,6 @@ function ProjectCard({
       {showReport && <ReportDialog project={project} onClose={() => setShowReport(false)} />}
       <ReadmeModal isOpen={showReadme} onClose={() => setShowReadme(false)} repository={showReadme ? toReadmeRepository(project) : null} />
     </article>
-  );
-}
-
-function GitForkIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="18" r="3" />
-      <circle cx="6" cy="6" r="3" />
-      <circle cx="18" cy="6" r="3" />
-      <path d="M6 9v2a3 3 0 003 3h6a3 3 0 003-3V9" />
-      <path d="M12 12v3" />
-    </svg>
   );
 }
 
@@ -821,7 +770,7 @@ export function ForkLabView() {
             <FlaskConical className="h-5 w-5" /> Fork 实验室
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            收集日报与 Top100 中感兴趣的项目，完成 AI 部署分析与建议流程（M1+M2，Fork/本地部署后续里程碑实现）。
+            从日报与 Top100 选择项目，查看 README、生成部署分析，并直接开始本地测试。
           </p>
         </div>
         <button onClick={() => void load()} className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10">
@@ -1038,10 +987,6 @@ export function ForkLabView() {
         </div>
       )}
 
-      <div className="flex items-start gap-2 rounded-lg border border-black/10 p-3 text-xs text-gray-500 dark:border-white/10">
-        <ExternalLink className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-        已实现：项目库、AI 部署分析、建议流程、GitHub Fork、测试队列与本地 Runner/Agent 链路（M3-M6）。本地项目的启停/重建/删除（M7/M8）后续实现。
-      </div>
     </section>
   );
 }
