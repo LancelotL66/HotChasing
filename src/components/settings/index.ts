@@ -10,3 +10,4 @@ export { DiagnosticLogsPanel } from './DiagnosticLogsPanel';
 export { MenuManagementPanel } from './MenuManagementPanel';
 export { VectorSearchSettings } from './VectorSearchSettings';
 export { McpSettingsPanel } from './McpSettingsPanel';
+export { LocalAgentSettingsPanel } from './LocalAgentSettingsPanel';

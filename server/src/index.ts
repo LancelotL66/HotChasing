@@ -20,6 +20,9 @@ import mcpAdminRouter from './routes/mcp.js';
 import discoveryRouter from './routes/discovery.js';
 import digestsRouter from './routes/digests.js';
 import classicRankingRouter from './routes/classicRanking.js';
+import forkLabRouter from './routes/forkLab.js';
+import deploymentRouter from './routes/deployment.js';
+import runnersRouter from './routes/runners.js';
 import { mountMcpRoutes } from './mcp/http.js';
 
 export function createApp(): express.Express {
@@ -58,6 +61,9 @@ export function createApp(): express.Express {
   app.use(discoveryRouter);
   app.use(digestsRouter);
   app.use(classicRankingRouter);
+  app.use(forkLabRouter);
+  app.use(deploymentRouter);
+  app.use(runnersRouter);
 
   // Wave 3: Proxy routes
   app.use(proxyRouter);

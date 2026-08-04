@@ -11,6 +11,9 @@ import {
   ChevronUp,
   ChevronDown,
   Info,
+  Newspaper,
+  Trophy,
+  FlaskConical,
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { HeaderMenuId } from '../../types';
@@ -30,6 +33,9 @@ const MENU_META: Record<HeaderMenuId, {
   releases: { icon: Calendar, labelZh: '发布', labelEn: 'Releases', canHide: true },
   forks: { icon: GitFork, labelZh: '复刻', labelEn: 'Forks', canHide: true },
   subscription: { icon: TrendingUp, labelZh: '趋势', labelEn: 'Trending', canHide: true },
+  digest: { icon: Newspaper, labelZh: '热点', labelEn: 'Hot', canHide: true },
+  top100: { icon: Trophy, labelZh: 'Top100', labelEn: 'Top 100', canHide: true },
+  'fork-lab': { icon: FlaskConical, labelZh: 'Fork 实验室', labelEn: 'Fork Lab', canHide: true },
   settings: { icon: Settings, labelZh: '设置', labelEn: 'Settings', canHide: false },
 };
 

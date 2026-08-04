@@ -6,8 +6,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# node-pty is optional for the web app but present for the Windows local Runner.
+# Keep other optional platform bindings required by Vite/Rolldown available.
+RUN apk add --no-cache python3 make g++ && npm ci
 
 # Copy source code
 COPY . .

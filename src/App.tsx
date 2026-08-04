@@ -13,6 +13,7 @@ import { GistView } from './components/GistView';
 import { BackToTop } from './components/BackToTop';
 import { DailyDigestView } from './components/DailyDigestView';
 import { Top100View } from './components/Top100View';
+import { ForkLabView } from './components/ForkLabView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppStore } from './store/useAppStore';
 import { logger } from './services/logger';
@@ -218,6 +219,12 @@ function App() {
         return <DailyDigestView />;
       case 'top100':
         return <Top100View />;
+      case 'fork-lab':
+        return (
+          <ErrorBoundary>
+            <ForkLabView />
+          </ErrorBoundary>
+        );
       default:
         return null;
     }

@@ -1,16 +1,32 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { getDb } from '../db/connection.js';
 import { generateTop100 } from '../classic-ranking/rankingService.js';
 import { ruleHotSummary } from '../discovery/summaryService.js';
 const router = Router();
-router.post('/api/classic-ranking/generate-top100', async (req, res) => {
+
+interface Top100Job {
+  id: string;
+  snapshotDate: string;
+  status: 'running' | 'completed' | 'failed';
+  phase: string;
+  done: number;
+  total: number;
+  error?: string;
+  createdAt: string;
+  finishedAt?: string;
+}
+const top100Jobs = new Map<string, Top100Job>();
+
+async function runTop100Job(job: Top100Job, force: boolean) {
   try {
-    const snapshotDate = new Date().toISOString().slice(0, 10); const force = req.body?.force === true; const db = getDb();
-    const existing = db.prepare('SELECT COUNT(*) AS count FROM classic_top100_snapshots WHERE snapshot_date=?').get(snapshotDate) as { count: number };
-    if (existing.count && !force) return res.json({ snapshotDate, count: existing.count, summariesGenerated: 0, archived: true });
+    job.phase = 'collect';
+    job.done = 0;
+    job.total = 0;
     const recent = new Date(); recent.setDate(recent.getDate() - 365); const queries = [`stars:>=10000`, `created:>${recent.toISOString().slice(0, 10)} stars:>=100`];
     const settled = await Promise.allSettled(queries.map(async (query) => { const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=100`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'HotChasing' } }); if (!response.ok) throw new Error(`GitHub Search returned ${response.status}`); return response.json() as Promise<{ items?: Array<Record<string, unknown>> }>; }));
     const responses = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []); const items = [...new Map(responses.flatMap((payload) => payload.items ?? []).map((repo) => [Number(repo.id), repo])).values()]; const now = new Date().toISOString();
+    const db = getDb();
     const upsert = db.prepare(`INSERT INTO repositories (id,name,full_name,description,html_url,stargazers_count,forks_count,language,created_at,updated_at,pushed_at,owner_login,owner_avatar_url,topics)
       VALUES (@id,@name,@full_name,@description,@html_url,@stargazers_count,@forks_count,@language,@created_at,@updated_at,@pushed_at,@owner_login,@owner_avatar_url,@topics)
       ON CONFLICT(id) DO UPDATE SET description=excluded.description,html_url=excluded.html_url,stargazers_count=excluded.stargazers_count,forks_count=excluded.forks_count,language=excluded.language,updated_at=excluded.updated_at,pushed_at=excluded.pushed_at,topics=excluded.topics`);
@@ -18,9 +34,38 @@ router.post('/api/classic-ranking/generate-top100', async (req, res) => {
     if (items.length) { const save = db.transaction(() => items.forEach((repo, index) => { const owner = repo.owner as Record<string, unknown> | undefined; upsert.run({ id: repo.id, name: repo.name, full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stargazers_count: repo.stargazers_count ?? 0, forks_count: repo.forks_count ?? 0, language: repo.language, created_at: repo.created_at, updated_at: repo.updated_at, pushed_at: repo.pushed_at, owner_login: owner?.login ?? '', owner_avatar_url: owner?.avatar_url ?? '', topics: JSON.stringify(repo.topics ?? []) }); snapshot.run(repo.id, now, repo.stargazers_count ?? 0, repo.forks_count ?? 0, repo.open_issues_count ?? 0, index + 1, 'top100_candidates'); })); save(); }
     const existingCandidates = db.prepare("SELECT COUNT(*) AS count FROM metric_snapshots WHERE source_channel='top100_candidates'").get() as { count: number };
     if (!items.length && !existingCandidates.count) throw new Error('GitHub 候选采集失败且本地没有可用的 Top100 候选池');
-    const ranking = await generateTop100(snapshotDate);
-    res.status(201).json({ ...ranking, archived: false });
+    job.phase = 'enrich';
+    await generateTop100(job.snapshotDate, (progress) => { job.phase = progress.phase; job.done = progress.done; job.total = progress.total; });
+    job.status = 'completed';
+  } catch (error) {
+    job.status = 'failed';
+    job.error = error instanceof Error ? error.message : 'Top100 generation failed';
+  } finally {
+    job.finishedAt = new Date().toISOString();
+  }
+}
+
+router.post('/api/classic-ranking/generate-top100', async (req, res) => {
+  try {
+    const snapshotDate = new Date().toISOString().slice(0, 10); const force = req.body?.force === true; const db = getDb();
+    const existing = db.prepare('SELECT COUNT(*) AS count FROM classic_top100_snapshots WHERE snapshot_date=?').get(snapshotDate) as { count: number };
+    if (existing.count && !force) return res.json({ snapshotDate, count: existing.count, summariesGenerated: 0, archived: true });
+
+    const running = [...top100Jobs.values()].find((job) => job.snapshotDate === snapshotDate && job.status === 'running');
+    if (running) return res.json({ jobId: running.id, archived: false, running: true });
+
+    const id = randomUUID();
+    const job: Top100Job = { id, snapshotDate, status: 'running', phase: 'queued', done: 0, total: 0, createdAt: new Date().toISOString() };
+    top100Jobs.set(id, job);
+    void runTop100Job(job, force);
+    res.status(202).json({ jobId: id, archived: false, running: true });
   } catch (error) { res.status(502).json({ error: error instanceof Error ? error.message : 'Top100 generation failed' }); }
+});
+
+router.get('/api/classic-ranking/generate-top100/status/:jobId', (req, res) => {
+  const job = top100Jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json({ id: job.id, snapshotDate: job.snapshotDate, status: job.status, phase: job.phase, done: job.done, total: job.total, error: job.error, createdAt: job.createdAt, finishedAt: job.finishedAt });
 });
 router.get('/api/classic-ranking/top100/:date?', (req, res) => {
   const db = getDb(); const date = req.params.date ?? (db.prepare('SELECT MAX(snapshot_date) AS date FROM classic_top100_snapshots').get() as { date?: string }).date;

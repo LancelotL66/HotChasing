@@ -390,7 +390,7 @@ interface AppActions {
   
   // UI actions
   setTheme: (theme: 'light' | 'dark') => void;
-  setCurrentView: (view: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest') => void;
+  setCurrentView: (view: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest' | 'top100' | 'fork-lab') => void;
   setSelectedCategory: (category: string) => void;
   setLanguage: (language: 'zh' | 'en') => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -2191,7 +2191,7 @@ export const useAppStore = create<AppState & AppActions>()(
     }),
     {
       name: 'github-stars-manager',
-      version: 9,
+      version: 10,
       storage: debouncedPersistStorage,
       partialize: (state) => ({
         // 持久化用户信息和认证状态
@@ -2335,6 +2335,16 @@ export const useAppStore = create<AppState & AppActions>()(
         if (state && !Array.isArray(state.categoryOrder)) {
           console.log('Migrating from old version: initializing categoryOrder');
           state.categoryOrder = [];
+        }
+
+        // v9→v10: 用「Fork 实验室」替换顶部导航的「复刻」
+        if (state && Array.isArray(state.headerMenuConfig)) {
+          const menu = state.headerMenuConfig.map((item) => ({ ...item }));
+          const forks = menu.find((item) => item.id === 'forks');
+          const forkLab = menu.find((item) => item.id === 'fork-lab');
+          if (forks) forks.visible = false;
+          if (forkLab) forkLab.order = 3;
+          state.headerMenuConfig = menu;
         }
 
         // 从旧版本升级时，确保 collapsedSidebarCategoryCount 字段存在

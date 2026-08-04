@@ -1,0 +1,18 @@
+projectType: local-exploratory
+
+checks:
+  - id: agent-result
+    type: result_json
+    required: true
+
+  - id: test-report
+    type: report_markdown
+    required: true
+
+artifacts:
+  collect:
+    - stdout
+    - stderr
+    - report.md
+    - result.json
+    - patch.diff

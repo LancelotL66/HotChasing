@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2, Newspaper, Trophy } from 'lucide-react';
+import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2, Newspaper, Trophy, FlaskConical } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useDialog } from '../hooks/useDialog';
 import { HeaderMenuId, AppState } from '../types';
@@ -16,6 +16,7 @@ const MENU_META: Record<HeaderMenuId, {
   subscription: { icon: TrendingUp, labelZh: '趋势', labelEn: 'Trending' },
   digest: { icon: Newspaper, labelZh: '热点', labelEn: 'Hot' },
   top100: { icon: Trophy, labelZh: 'Top100', labelEn: 'Top 100' },
+  'fork-lab': { icon: FlaskConical, labelZh: 'Fork 实验室', labelEn: 'Fork Lab' },
   settings: { icon: Settings, labelZh: '设置', labelEn: 'Settings' },
 };
 

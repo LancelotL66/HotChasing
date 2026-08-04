@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "1.0",
+  "strategy": "PACKAGE_MANAGER",
+  "summary": "在隔离 Python 环境中以 README 明确支持的 editable 安装方式安装 AlphaSift，优先执行仓库测试套件（先由 Agent 阅读 pyproject.toml 的测试配置并按其定义调整），随后验证无凭据 CLI 的策略发现、配置审计、离线热点流程、quickstart 演示及 Python API 的确定性调用。LLM、实时全市场行情筛选、Tushare、DSA 和外部 HTTP 服务不作为默认验收项，因为它们依赖网络、第三方数据或用户凭据。所有步骤输出保存为本地日志，最后生成简要测试报告。",
+  "testLevel": "L2",
+  "estimatedResources": {
+    "cpu": 2,
+    "memoryMb": 1024,
+    "diskMb": 1024,
+    "gpuRequired": false
+  },
+  "requirements": {
+    "database": false,
+    "externalApi": false,
+    "credentials": [],
+    "accountLogin": false,
+    "networkDuringBuild": true,
+    "networkDuringRun": false,
+    "environmentVariables": [
+      "ALPHASIFT_DATA_DIR=/tmp/alphasift-test-data"
+    ]
+  },
+  "steps": [
+    {
+      "id": "install-editable-package",
+      "type": "command",
+      "command": "python -m venv .venv && . .venv/bin/activate && python -m pip install --upgrade pip && python -m pip install -e . && mkdir -p /tmp/alphasift-test-logs /tmp/alphasift-test-data && alphasift --help | tee /tmp/alphasift-test-logs/01-cli-help.log"
+    },
+    {
+      "id": "run-repository-tests",
+      "type": "command",
+      "command": ". .venv/bin/activate && export ALPHASIFT_DATA_DIR=/tmp/alphasift-test-data && python -m pytest | tee /tmp/alphasift-test-logs/02-pytest.log"
+    },
+    {
+      "id": "verify-cli-strategies-and-audit",
+      "type": "command",
+      "command": ". .venv/bin/activate && export ALPHASIFT_DATA_DIR=/tmp/alphasift-test-data && alphasift strategies && alphasift audit | tee /tmp/alphasift-test-logs/03-strategies-audit.log"
+    },
+    {
+      "id": "verify-offline-hotspot-workflow",
+      "type": "command",
+      "command": ". .venv/bin/activate && export ALPHASIFT_DATA_DIR=/tmp/alphasift-test-data && alphasift hotspots --provider none --explain | tee /tmp/alphasift-test-logs/04-hotspots-offline.log"
+    },
+    {
+      "id": "verify-no-key-quickstart",
+      "type": "command",
+      "command": ". .venv/bin/activate && export ALPHASIFT_DATA_DIR=/tmp/alphasift-test-data && alphasift quickstart | tee /tmp/alphasift-test-logs/05-quickstart.log"
+    },
+    {
+      "id": "verify-python-api-deterministic-call",
+      "type": "command",
+      "command": ". .venv/bin/activate && export ALPHASIFT_DATA_DIR=/tmp/alphasift-test-data && python -c \"from alphasift import screen; result = screen('dual_low', use_llm=False); assert hasattr(result, 'picks'); print({'pick_count': len(result.picks), 'result_type': type(result).__name__})\" | tee /tmp/alphasift-test-logs/06-python-api.log"
+    },
+    {
+      "id": "generate-local-test-report",
+      "type": "command",
+      "command": "python -c \"from pathlib import Path; logs=Path('/tmp/alphasift-test-logs'); report=Path('local-test-report.md'); files=sorted(logs.glob('*.log')); report.write_text('# AlphaSift 本地功能测试报告\\n\\n## 已验证功能与证据\\n' + ''.join(f'- `{f.name}`：已执行，完整输出位于 `{f}`。\\n' for f in files) + '\\n## 未覆盖项\\n- 未启用 LLM 排名：需要 GEMINI_API_KEY、OPENAI_API_KEY、DEEPSEEK_API_KEY 或 LiteLLM 兼容配置。\\n- 未验证实时市场快照、日线富集及在线热点提供方：默认离线测试不访问 Sina、Eastmoney、AkShare、efinance、Tushare 或其他第三方服务。\\n- 未启动 `alphasift serve`：本计划验证 CLI、测试套件和 Python API，不将本地只读 HTTP API 的 HTTP 200 作为替代功能验收。\\n- 未验证 DSA 后分析：需要 DSA_API_URL。\\n\\n## 失败原因\\n- 如存在失败，请以对应日志中的 traceback、断言或命令退出信息为准；网络、第三方数据源和凭据相关功能不应在无凭据离线验收中判定为核心功能失败。\\n', encoding='utf-8'); print(report)\""
+    }
+  ],
+  "blockers": [
+    "若 pyproject.toml 未将 pytest 作为可安装依赖，Agent 应先依据该文件定义的开发/测试 extra 或测试工具安装方式补齐测试依赖，再执行仓库已有测试配置；不得凭空改写测试。",
+    "quickstart 或 Python API 调用若实际需要在线市场数据，Agent 应记录数据源不可用、网络策略或上游响应导致的失败，并以仓库测试、CLI 帮助、策略列举、audit 和 provider=none 离线流程作为无网络证据。",
+    "LLM 排名、Tushare 数据源、DSA 分析及真实市场行情结果需要用户提供相应凭据或明确批准联网后才可覆盖。"
+  ],
+  "needsUserApproval": false
+}

@@ -1,0 +1,16 @@
+{
+  "allowedWorkspace": "./repo",
+  "allowHostPackageInstall": false,
+  "allowSudo": false,
+  "allowPrivilegedContainers": false,
+  "allowHostNetwork": false,
+  "allowDockerSocketMount": false,
+  "allowHomeDirectoryAccess": false,
+  "allowCredentialAccess": false,
+  "allowPush": false,
+  "maximumCpu": 2,
+  "maximumMemoryMb": 2048,
+  "maximumRuntimeSeconds": 1200,
+  "allowModification": true,
+  "allowCommit": true
+}

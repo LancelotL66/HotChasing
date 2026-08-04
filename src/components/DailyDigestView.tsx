@@ -9,6 +9,7 @@ import {
   Sparkles,
   Star,
   X,
+  Loader2,
 } from "lucide-react";
 import {
   digestApi,
@@ -16,9 +17,11 @@ import {
   type DailyDigestItem,
 } from "../services/digestApi";
 import { backend } from "../services/backendAdapter";
+import { forkLabApi } from "../services/forkLabApi";
 import { ReadmeModal } from "./ReadmeModal";
 import { createGitHubApiService } from "../services/githubApiFactory";
 import { useAppStore } from "../store/useAppStore";
+import { useForkLabStore } from "../store/useForkLabStore";
 import { AIService } from "../services/aiService";
 import { DiscoveryView } from "./DiscoveryView";
 import type { Repository } from "../types";
@@ -84,6 +87,7 @@ export function DailyDigestView() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [starringId, setStarringId] = useState<number | null>(null);
+  const [forkingId, setForkingId] = useState<number | null>(null);
   const [timeMode, setTimeMode] = useState<"today" | "date" | "range">("today");
   const [selectedDate, setSelectedDate] = useState("");
   const [rangeStart, setRangeStart] = useState("");
@@ -96,6 +100,12 @@ export function DailyDigestView() {
   const aiConfigs = useAppStore((state) => state.aiConfigs);
   const activeAIConfig = useAppStore((state) => state.activeAIConfig);
   const language = useAppStore((state) => state.language);
+  const forkedRepoIds = useForkLabStore((state) => state.forkedRepoIds);
+  const loadForkLab = useForkLabStore((state) => state.load);
+  const markForkAdded = useForkLabStore((state) => state.markAdded);
+  useEffect(() => {
+    void loadForkLab();
+  }, [loadForkLab]);
   const load = async (date?: string) => {
     setLoading(true);
     setMessage("");
@@ -209,20 +219,26 @@ export function DailyDigestView() {
     let progressTimer: number | undefined;
     try {
       const today = new Date().toISOString().slice(0, 10);
+      const targetDate = timeMode === "date" && selectedDate ? selectedDate : today;
       const currentDigests = await digestApi.list();
-      const existing = currentDigests.find((item) => item.digest_date === today);
+      const existing = currentDigests.find((item) => item.digest_date === targetDate);
       if (existing) {
-        await load(today);
-        setArchiveNotice("今日日报已归档，已直接读取，不重复采集或调用 AI。");
+        await load(targetDate);
+        setArchiveNotice(`${targetDate} 日报已归档，已直接读取，不重复采集或调用 AI。`);
         return;
       }
-      const collected = await digestApi.collectHotProjects();
+      if (targetDate < today) {
+        setUpdatePhase(`正在补采 ${targetDate} 当日热点候选`);
+        await digestApi.backfillDaily(targetDate);
+      } else {
+        await digestApi.collectHotProjects();
+      }
       setUpdateProgress(45);
       setUpdatePhase("正在评分、AI 分类与生成摘要");
       progressTimer = window.setInterval(() => {
         setUpdateProgress((current) => current === null ? current : Math.min(90, current + 3));
       }, 1800);
-      const generated = await digestApi.generate();
+      const generated = await digestApi.generate(false, targetDate);
       window.clearInterval(progressTimer);
       progressTimer = undefined;
       setUpdateProgress(95);
@@ -231,7 +247,9 @@ export function DailyDigestView() {
       setUpdateProgress(100);
       setUpdatePhase("更新完成");
       setMessage(
-        `已从 ${collected.channels.length} 个分类采集 ${collected.itemsSaved} 个热点候选项目并生成日报。`,
+        targetDate < today
+          ? `已补采 ${targetDate} 热点候选并生成该日日报。`
+          : `已采集热点候选项目并生成今日日报。`,
       );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "热点采集或日报生成失败");
@@ -270,6 +288,20 @@ export function DailyDigestView() {
       setStarringId(null);
     }
   };
+  const addToForkLab = async (item: DailyDigestItem) => {
+    setForkingId(item.repo_id);
+    setMessage("");
+    try {
+      const result = await forkLabApi.addProject(item.repo_id, "digest");
+      markForkAdded(item.repo_id);
+      setMessage(result.autoFork ? `${item.full_name} 已加入 Fork 实验室，正在创建 GitHub Fork。` : `${item.full_name} 已加入 Fork 实验室。`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "加入 Fork 实验室失败");
+    } finally {
+      setForkingId(null);
+    }
+  };
+  const isForked = (repoId: number) => forkedRepoIds.has(repoId);
   const filteredItems =
     digest?.items.filter(
       (item) =>
@@ -356,7 +388,7 @@ export function DailyDigestView() {
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
           >
             <Radar className="h-4 w-4" />
-            采集今日日报
+            {timeMode === "date" && selectedDate ? `获取 ${selectedDate} 日报` : "采集今日日报"}
           </button>
           <button
             onClick={rebuildAllDigests}
@@ -503,7 +535,7 @@ export function DailyDigestView() {
           type="date"
           value={selectedDate}
           min={digests.at(-1)?.digest_date}
-          max={digests[0]?.digest_date}
+          max={new Date().toISOString().slice(0, 10)}
           onChange={(event) => selectArchiveDate(event.target.value)}
           className="[color-scheme:light] w-[10.5rem] cursor-pointer rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-sm font-medium text-blue-950 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:[color-scheme:dark] dark:border-white/10 dark:bg-white/[0.07] dark:text-blue-100"
         />
@@ -647,6 +679,21 @@ export function DailyDigestView() {
                         className="rounded-md p-2 hover:bg-yellow-100 disabled:opacity-50 dark:hover:bg-yellow-500/20"
                       >
                         <Star className={`h-4 w-4 ${isStarred(item.repo_id) ? "fill-yellow-400 text-yellow-500" : ""}`} />
+                      </button>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void addToForkLab(item);
+                        }}
+                        disabled={forkingId === item.repo_id || isForked(item.repo_id)}
+                        title={isForked(item.repo_id) ? "已加入 Fork 实验室" : "加入 Fork 实验室"}
+                        className="rounded-md p-2 hover:bg-blue-100 disabled:opacity-60 dark:hover:bg-blue-500/20"
+                      >
+                        {forkingId === item.repo_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <GitFork className={`h-4 w-4 ${isForked(item.repo_id) ? "fill-blue-500 text-blue-500" : "text-blue-600"}`} />
+                        )}
                       </button>
                     </div>
                   </div>

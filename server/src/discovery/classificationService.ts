@@ -1,5 +1,21 @@
 import { createHash } from 'node:crypto';
 import { getDb } from '../db/connection.js';
+import { decrypt } from '../services/crypto.js';
+import { config } from '../config.js';
+
+function githubHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'User-Agent': 'HotChasing' };
+  try {
+    const row = getDb().prepare('SELECT value FROM settings WHERE key=?').get('github_token') as { value?: string } | undefined;
+    if (row?.value) {
+      const token = decrypt(row.value, config.encryptionKey);
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+  } catch {
+    // 无 Token 或解密失败时退化为匿名请求
+  }
+  return headers;
+}
 
 export const PRIMARY_CATEGORIES = ['AI 与 Agent', '开发者工具', '数据与数据库', '基础设施与 DevOps', '效率与自动化', '设计与内容创作', '安全与隐私', '桌面与移动应用', '学习与研究', '其他 / 待分类'] as const;
 export type PrimaryCategory = typeof PRIMARY_CATEGORIES[number];
@@ -43,7 +59,7 @@ export async function fetchRepositoryReadme(fullName: string): Promise<string> {
   if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) return '';
   try {
     const response = await fetch(`https://api.github.com/repos/${fullName}/readme`, {
-      headers: { Accept: 'application/vnd.github.raw+json', 'User-Agent': 'HotChasing' },
+      headers: { Accept: 'application/vnd.github.raw+json', ...githubHeaders() },
       signal: AbortSignal.timeout(15000),
     });
     return response.ok ? (await response.text()).slice(0, 12000) : '';
@@ -54,7 +70,7 @@ export async function fetchRepositoryArchitecture(fullName: string): Promise<str
   if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) return '';
   try {
     const response = await fetch(`https://api.github.com/repos/${fullName}/contents`, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'HotChasing' },
+      headers: { Accept: 'application/vnd.github+json', ...githubHeaders() },
       signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) return '';
@@ -68,11 +84,11 @@ export async function fetchRepositoryArchitecture(fullName: string): Promise<str
 export async function fetchRepositoryEnrichment(repo: Record<string, unknown>): Promise<{ readme: string; architecture: string }> {
   const updatedAt = typeof repo.updated_at === 'string' ? repo.updated_at : '';
   const cachedAt = typeof repo.enrichment_updated_at === 'string' ? repo.enrichment_updated_at : '';
-  if (updatedAt && updatedAt === cachedAt) {
-    return {
-      readme: typeof repo.enrichment_readme === 'string' ? repo.enrichment_readme : '',
-      architecture: typeof repo.enrichment_architecture === 'string' ? repo.enrichment_architecture : '',
-    };
+  const cachedReadme = typeof repo.enrichment_readme === 'string' ? repo.enrichment_readme : '';
+  const cachedArchitecture = typeof repo.enrichment_architecture === 'string' ? repo.enrichment_architecture : '';
+  // 仅在缓存确实有内容时复用；之前限流写入的空缓存需要重新拉取
+  if (updatedAt && updatedAt === cachedAt && (cachedReadme || cachedArchitecture)) {
+    return { readme: cachedReadme, architecture: cachedArchitecture };
   }
 
   const fullName = String(repo.full_name ?? '');

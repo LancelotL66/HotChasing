@@ -7,8 +7,11 @@ import {
   Sparkles,
   Star,
   Trophy,
+  Loader2,
 } from "lucide-react";
 import { backend } from "../services/backendAdapter";
+import { forkLabApi } from "../services/forkLabApi";
+import { useForkLabStore } from "../store/useForkLabStore";
 import { ReadmeModal } from "./ReadmeModal";
 import { createGitHubApiService } from "../services/githubApiFactory";
 import { useAppStore } from "../store/useAppStore";
@@ -86,6 +89,13 @@ export function Top100View() {
     null,
   );
   const [starringId, setStarringId] = useState<number | null>(null);
+  const [forkingId, setForkingId] = useState<number | null>(null);
+  const forkedRepoIds = useForkLabStore((state) => state.forkedRepoIds);
+  const loadForkLab = useForkLabStore((state) => state.load);
+  const markForkAdded = useForkLabStore((state) => state.markAdded);
+  useEffect(() => {
+    void loadForkLab();
+  }, [loadForkLab]);
   const githubToken = useAppStore((state) => state.githubToken);
   const repositories = useAppStore((state) => state.repositories);
   const addRepository = useAppStore((state) => state.addRepository);
@@ -121,12 +131,8 @@ export function Top100View() {
     setLoading(true);
     setMessage("");
     setUpdateProgress(8);
-    setUpdatePhase("正在采集双候选池");
-    const timer = window.setInterval(() => {
-      setUpdateProgress((current) => current === null ? current : Math.min(90, current + 3));
-    }, 2500);
+    setUpdatePhase("正在提交生成任务");
     try {
-      window.setTimeout(() => setUpdatePhase("正在按热度评分、AI 分类与生成摘要"), 800);
       const response = await fetch(
         `${backend.backendUrl}/classic-ranking/generate-top100`,
         {
@@ -136,15 +142,58 @@ export function Top100View() {
         },
       );
       if (!response.ok) throw new Error(`请求失败：${response.status}`);
-      setUpdateProgress(95);
-      setUpdatePhase("正在保存榜单并刷新页面");
-      await load();
-      setUpdateProgress(100);
-      setUpdatePhase("更新完成");
+      const data = (await response.json()) as {
+        jobId?: string;
+        archived?: boolean;
+        running?: boolean;
+      };
+      if (data.archived) {
+        setUpdateProgress(95);
+        setUpdatePhase("已归档，正在读取快照");
+        await load();
+        setUpdateProgress(100);
+        setUpdatePhase("更新完成");
+        setMessage("今日 Top100 已归档，已直接读取快照。");
+        return;
+      }
+      if (!data.jobId) throw new Error("生成任务未返回任务 ID");
+      const jobId = data.jobId;
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const statusResponse = await fetch(
+          `${backend.backendUrl}/classic-ranking/generate-top100/status/${jobId}`,
+        );
+        if (!statusResponse.ok) throw new Error(`任务状态查询失败：${statusResponse.status}`);
+        const job = (await statusResponse.json()) as {
+          status: string;
+          phase: string;
+          done: number;
+          total: number;
+          error?: string;
+        };
+        if (job.status === "failed") throw new Error(job.error || "Top100 生成失败");
+        if (job.phase === "enrich" && job.total > 0) {
+          setUpdateProgress(10 + Math.round((job.done / job.total) * 80));
+          setUpdatePhase(`正在 AI 分类与总结（${job.done}/${job.total}）`);
+        } else if (job.phase === "collect") {
+          setUpdateProgress(10);
+          setUpdatePhase("正在采集候选池");
+        } else if (job.phase === "save") {
+          setUpdateProgress(92);
+          setUpdatePhase("正在保存榜单");
+        }
+        if (job.status === "completed") {
+          setUpdateProgress(95);
+          setUpdatePhase("正在刷新页面");
+          await load();
+          setUpdateProgress(100);
+          setUpdatePhase("更新完成");
+          return;
+        }
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "生成失败");
     } finally {
-      window.clearInterval(timer);
       setLoading(false);
       window.setTimeout(() => setUpdateProgress(null), 1200);
     }
@@ -193,6 +242,20 @@ export function Top100View() {
       setStarringId(null);
     }
   };
+  const addToForkLab = async (item: TopItem) => {
+    setForkingId(item.repo_id);
+    setMessage("");
+    try {
+      const result = await forkLabApi.addProject(item.repo_id, "top100");
+      markForkAdded(item.repo_id);
+      setMessage(result.autoFork ? `${item.full_name} 已加入 Fork 实验室，正在创建 GitHub Fork。` : `${item.full_name} 已加入 Fork 实验室。`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "加入 Fork 实验室失败");
+    } finally {
+      setForkingId(null);
+    }
+  };
+  const isForked = (repoId: number) => forkedRepoIds.has(repoId);
   const visible = items.filter(
     (item) =>
       selectedCategory === "全部" || item.primary_category === selectedCategory,
@@ -340,6 +403,21 @@ export function Top100View() {
                       className="rounded-md p-2 hover:bg-yellow-100 disabled:opacity-50"
                     >
                       <Star className={`h-4 w-4 ${isStarred(item.repo_id) ? "fill-yellow-400 text-yellow-500" : ""}`} />
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void addToForkLab(item);
+                      }}
+                      disabled={forkingId === item.repo_id || isForked(item.repo_id)}
+                      title={isForked(item.repo_id) ? "已加入 Fork 实验室" : "加入 Fork 实验室"}
+                      className="rounded-md p-2 hover:bg-blue-100 disabled:opacity-60"
+                    >
+                      {forkingId === item.repo_id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <GitFork className={`h-4 w-4 ${isForked(item.repo_id) ? "fill-blue-500 text-blue-500" : "text-blue-600"}`} />
+                      )}
                     </button>
                   </div>
                 </div>

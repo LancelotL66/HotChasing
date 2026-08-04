@@ -8,7 +8,7 @@ import { generateHotSummary } from '../discovery/aiGateway.js';
 
 const router = Router();
 const requestSchema = z.object({ query: z.string().min(1).max(200).optional(), channel: z.string().max(40).optional() });
-const backfillSchema = z.object({ days: z.number().int().min(1).max(15).default(15) });
+const backfillSchema = z.object({ days: z.number().int().min(1).max(15).default(15), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 
 function getDiscoveryChannels(): Array<{ channel: string; query: string; sort: 'updated' | 'stars' }> {
   const today = new Date();
@@ -71,12 +71,27 @@ router.post('/api/discovery/backfill-daily', async (req, res) => {
     VALUES (@id,@name,@full_name,@description,@html_url,@stargazers_count,@forks_count,@language,@created_at,@updated_at,@pushed_at,@owner_login,@owner_avatar_url,@topics)
     ON CONFLICT(id) DO UPDATE SET description=excluded.description,html_url=excluded.html_url,stargazers_count=excluded.stargazers_count,forks_count=excluded.forks_count,language=excluded.language,updated_at=excluded.updated_at,pushed_at=excluded.pushed_at,topics=excluded.topics`);
   const snapshot = db.prepare('INSERT OR IGNORE INTO metric_snapshots (repo_id,captured_at,stars,forks,open_issues,ranking,source_channel) VALUES (?,?,?,?,?,?,?)'); const dates: string[] = [];
+  const backfillDay = (day: Date) => {
+    const date = day.toISOString().slice(0, 10);
+    const capturedAt = `${date}T12:00:00.000Z`;
+    return { date, capturedAt };
+  };
+  const backfillDate = async (date: string, capturedAt: string) => {
+    const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(`created:${date} stars:>=5`)}&sort=stars&order=desc&per_page=30`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'HotChasing' } });
+    if (!response.ok) return;
+    const payload = await response.json() as { items?: Array<Record<string, unknown>> };
+    const save = db.transaction(() => (payload.items ?? []).forEach((repo, index) => { const owner = repo.owner as Record<string, unknown> | undefined; upsert.run({ id: repo.id, name: repo.name, full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stargazers_count: repo.stargazers_count ?? 0, forks_count: repo.forks_count ?? 0, language: repo.language, created_at: repo.created_at, updated_at: repo.updated_at, pushed_at: repo.pushed_at, owner_login: owner?.login ?? '', owner_avatar_url: owner?.avatar_url ?? '', topics: JSON.stringify(repo.topics ?? []) }); snapshot.run(repo.id, capturedAt, repo.stargazers_count ?? 0, repo.forks_count ?? 0, repo.open_issues_count ?? 0, index + 1, 'historical_daily'); })); save();
+  };
   try {
-    for (let offset = 0; offset < parsed.data.days; offset++) {
-      const day = new Date(); day.setUTCDate(day.getUTCDate() - offset); const date = day.toISOString().slice(0, 10);
-      const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(`created:${date} stars:>=5`)}&sort=stars&order=desc&per_page=30`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'HotChasing' } });
-      if (!response.ok) continue; const payload = await response.json() as { items?: Array<Record<string, unknown>> }; const capturedAt = `${date}T12:00:00.000Z`;
-      const save = db.transaction(() => (payload.items ?? []).forEach((repo, index) => { const owner = repo.owner as Record<string, unknown> | undefined; upsert.run({ id: repo.id, name: repo.name, full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stargazers_count: repo.stargazers_count ?? 0, forks_count: repo.forks_count ?? 0, language: repo.language, created_at: repo.created_at, updated_at: repo.updated_at, pushed_at: repo.pushed_at, owner_login: owner?.login ?? '', owner_avatar_url: owner?.avatar_url ?? '', topics: JSON.stringify(repo.topics ?? []) }); snapshot.run(repo.id, capturedAt, repo.stargazers_count ?? 0, repo.forks_count ?? 0, repo.open_issues_count ?? 0, index + 1, 'historical_daily'); })); save(); dates.push(date);
+    if (parsed.data.date) {
+      const { capturedAt } = backfillDay(new Date(`${parsed.data.date}T00:00:00.000Z`));
+      await backfillDate(parsed.data.date, capturedAt);
+      dates.push(parsed.data.date);
+    } else {
+      for (let offset = 0; offset < parsed.data.days; offset++) {
+        const day = new Date(); day.setUTCDate(day.getUTCDate() - offset); const { date, capturedAt } = backfillDay(day);
+        await backfillDate(date, capturedAt); dates.push(date);
+      }
     }
     res.status(201).json({ dates });
   } catch (error) { res.status(502).json({ error: error instanceof Error ? error.message : 'Historical discovery failed' }); }

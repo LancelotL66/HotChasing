@@ -13,6 +13,10 @@ files:
   - node_modules/**/*
   - package.json
 
+extraResources:
+  - from: runner
+    to: runner
+
 extraMetadata:
   main: electron/main.js
 

@@ -100,9 +100,172 @@ const migrations: Record<number, (db: Database.Database) => void> = {
     const add = (name: string, definition: string) => {
       if (!columns.some((column) => column.name === name)) db.exec(`ALTER TABLE repositories ADD COLUMN ${name} ${definition}`);
     };
-    add('enrichment_readme', 'TEXT');
+add('enrichment_readme', 'TEXT');
     add('enrichment_architecture', 'TEXT');
     add('enrichment_updated_at', 'TEXT');
+  },
+  8: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS fork_workspace_projects (
+        id TEXT PRIMARY KEY,
+        repo_id INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        upstream_full_name TEXT NOT NULL,
+        fork_full_name TEXT,
+        fork_status TEXT NOT NULL DEFAULT 'NOT_REQUESTED',
+        upstream_commit_sha TEXT,
+        test_branch TEXT,
+        project_status TEXT NOT NULL DEFAULT 'SELECTED',
+        selected_at TEXT NOT NULL,
+        forked_at TEXT,
+        archived_at TEXT,
+        UNIQUE(repo_id)
+      );
+      CREATE TABLE IF NOT EXISTS deployment_assessments (
+        repo_id INTEGER PRIMARY KEY,
+        value_score REAL NOT NULL,
+        difficulty_score REAL NOT NULL,
+        testability_score REAL NOT NULL,
+        risk_score REAL NOT NULL,
+        recommended_level TEXT NOT NULL,
+        recommended_strategy TEXT,
+        assessment_json TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        ai_config_id TEXT,
+        confidence REAL,
+        assessed_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS deployment_plans (
+        id TEXT PRIMARY KEY,
+        workspace_project_id TEXT NOT NULL,
+        plan_json TEXT NOT NULL,
+        plan_source TEXT NOT NULL,
+        plan_version INTEGER NOT NULL DEFAULT 1,
+        locked INTEGER NOT NULL DEFAULT 0,
+        generated_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  },
+  9: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS deployment_batches (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        agent_id TEXT,
+        runner_id TEXT,
+        test_level TEXT NOT NULL,
+        max_concurrency INTEGER NOT NULL DEFAULT 2,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS deployment_tasks (
+        id TEXT PRIMARY KEY,
+        batch_id TEXT,
+        workspace_project_id TEXT NOT NULL,
+        runner_id TEXT,
+        agent_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        current_stage TEXT,
+        progress REAL DEFAULT 0,
+        max_repair_iterations INTEGER DEFAULT 3,
+        allow_modification INTEGER DEFAULT 1,
+        allow_commit INTEGER DEFAULT 1,
+        allow_push INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        error_message TEXT
+      );
+      CREATE TABLE IF NOT EXISTS deployment_runs (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        plan_json TEXT,
+        status TEXT NOT NULL,
+        exit_code INTEGER,
+        result_json TEXT,
+        started_at TEXT,
+        finished_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS local_deployments (
+        id TEXT PRIMARY KEY,
+        workspace_project_id TEXT NOT NULL,
+        task_id TEXT,
+        runner_id TEXT NOT NULL,
+        workspace_path TEXT,
+        container_names_json TEXT,
+        image_names_json TEXT,
+        ports_json TEXT,
+        status TEXT NOT NULL,
+        disk_usage_bytes INTEGER,
+        started_at TEXT,
+        stopped_at TEXT,
+        deleted_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS runner_agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        status TEXT NOT NULL,
+        capabilities_json TEXT NOT NULL,
+        last_heartbeat_at TEXT,
+        registered_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS deployment_task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        runner_id TEXT,
+        event_type TEXT NOT NULL,
+        stage TEXT,
+        message TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+  },
+  10: (db) => {
+    // v9 allowed projects to be removed while their task records remained.
+    // Remove those orphaned records before task views dereference the project.
+    db.exec(`
+      DELETE FROM deployment_task_events
+      WHERE task_id IN (
+        SELECT t.id FROM deployment_tasks t
+        LEFT JOIN fork_workspace_projects p ON p.id=t.workspace_project_id
+        WHERE p.id IS NULL
+      );
+      DELETE FROM deployment_runs
+      WHERE task_id IN (
+        SELECT t.id FROM deployment_tasks t
+        LEFT JOIN fork_workspace_projects p ON p.id=t.workspace_project_id
+        WHERE p.id IS NULL
+      );
+      DELETE FROM local_deployments
+      WHERE workspace_project_id NOT IN (SELECT id FROM fork_workspace_projects);
+      DELETE FROM deployment_tasks
+      WHERE workspace_project_id NOT IN (SELECT id FROM fork_workspace_projects);
+    `);
+  },
+  11: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS project_test_reports (
+        id TEXT PRIMARY KEY,
+        workspace_project_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        runner_id TEXT,
+        status TEXT NOT NULL,
+        report_markdown TEXT NOT NULL,
+        result_json TEXT,
+        logs_text TEXT,
+        workspace_path TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(task_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_test_reports_project_created
+        ON project_test_reports(workspace_project_id, created_at DESC);
+    `);
   },
 };
 

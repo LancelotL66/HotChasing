@@ -1,0 +1,5 @@
+{
+  "status": "passed",
+  "summary": "AlphaSift editable installation, full pytest suite, CLI checks, offline hotspot workflow, quickstart, and deterministic Python API call completed successfully.",
+  "notes": "Required commit verified as 9f522747caafd3c0b1ddb7e14d5cf44c8580b6cf. Pytest passed with 302 passed and 1 skipped when using an explicit writable --basetemp because the sandbox default pytest temp directory was inaccessible. No repository source changes were made."
+}

@@ -14,6 +14,7 @@ import {
   Layout,
   Search,
   Cable,
+  Terminal,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { isElectron } from '../services/electronProxy';
@@ -31,9 +32,10 @@ import {
   MenuManagementPanel,
   VectorSearchSettings,
   McpSettingsPanel,
+  LocalAgentSettingsPanel,
 } from './settings';
 
-type SettingsTab = 'general' | 'ai' | 'webdav' | 'backup' | 'backend' | 'category' | 'menu' | 'data' | 'logs' | 'network' | 'vectorSearch' | 'mcp';
+type SettingsTab = 'general' | 'ai' | 'webdav' | 'backup' | 'backend' | 'category' | 'menu' | 'data' | 'logs' | 'network' | 'vectorSearch' | 'mcp' | 'localAgent';
 
 interface SettingsTabItem {
   id: SettingsTab;
@@ -260,7 +262,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   // Valid SettingsTab values for runtime validation
   const VALID_TABS: ReadonlySet<string> = useMemo(
-    () => new Set(['general', 'ai', 'webdav', 'backup', 'backend', 'category', 'menu', 'data', 'logs', 'network', 'vectorSearch', 'mcp']),
+    () => new Set(['general', 'ai', 'webdav', 'backup', 'backend', 'category', 'menu', 'data', 'logs', 'network', 'vectorSearch', 'mcp', 'localAgent']),
     []
   );
 
@@ -363,6 +365,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       label: t('向量搜索', 'Vector Search'),
       icon: <Search className="w-5 h-5" />,
     },
+    ...((isElectron() || backend.isAvailable) ? [{ id: 'localAgent' as SettingsTab, label: t('本地 Agent', 'Local Agent'), icon: <Terminal className="w-5 h-5" /> }] : []),
     // MCP requires a long-lived process: backend or Electron main. Hide for pure SPA.
     ...((isElectron() || backend.isAvailable) ? [{
       id: 'mcp' as SettingsTab,
@@ -398,6 +401,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           return <VectorSearchSettings t={t} />;
         case 'mcp':
           return <McpSettingsPanel t={t} />;
+        case 'localAgent':
+          return <LocalAgentSettingsPanel t={t} />;
         default:
           return null;
       }

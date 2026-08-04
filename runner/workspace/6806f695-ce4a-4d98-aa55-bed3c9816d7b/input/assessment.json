@@ -1,0 +1,14 @@
+{
+  "repo_id": 1208414797,
+  "value_score": 76,
+  "difficulty_score": 43,
+  "testability_score": 72,
+  "risk_score": 71,
+  "recommended_level": "AGENT_ASSISTED_TEST",
+  "recommended_strategy": "PACKAGE_MANAGER",
+  "assessment_json": "{\"deploymentValueScore\":76,\"deploymentDifficultyScore\":43,\"testabilityScore\":72,\"riskScore\":71,\"recommendedLevel\":\"AGENT_ASSISTED_TEST\",\"recommendedMethod\":\"PACKAGE_MANAGER\",\"estimatedResources\":{\"cpu\":2,\"memoryMb\":1024,\"diskMb\":1024,\"gpuRequired\":false},\"requirements\":{\"database\":false,\"externalApi\":true,\"credentials\":false,\"accountLogin\":false,\"networkDuringBuild\":true,\"networkDuringRun\":true},\"valueReasons\":[\"提供完整的 A 股全市场筛选、确定性因子评分、可选 LLM 排名、热点发现、运行记录和后续评估能力。\",\"CLI、Python API 和本地只读 JSON API 均有文档化入口，适合脚本、Agent 和仪表盘集成。\",\"内置无密钥 quickstart，并支持通过 --no-llm 运行确定性筛选。\",\"支持多数据源优先级与回退，并对缓存、陈旧数据和回退来源提供可审计元数据。\"],\"difficultyReasons\":[\"项目为 Python 包，README 明确支持 pip install -e .，未发现官方 Dockerfile 或 Compose 部署文件。\",\"运行核心筛选通常依赖实时或缓存市场数据；默认数据链路涉及 Sina、Eastmoney、AkShare、efinance 等外部来源。\",\"LLM 排名为可选功能，但启用时需要配置 Gemini、OpenAI、DeepSeek、LiteLLM 或兼容服务的连接信息。\",\"部分高级数据源和分析功能需要额外配置，例如 Tushare Token、DSA_API_URL、行业提供方及日线数据源。\",\"项目提供 tests 目录，但给定信息未展示测试命令、依赖锁定文件或可完全离线的测试保证。\"],\"riskReasons\":[\"仓库明确声明仅用于学习、研究和工程实验，不构成投资建议；输出可能延迟、不完整、错误或不适合交易。\",\"金融市场数据依赖第三方 HTTP/API 数据源，可能受限流、接口变化、交易时段、数据缺失及网络失败影响。\",\"可选 LLM 排名具有模型输出不确定性，并可能产生 API 成本和敏感凭据管理需求。\",\"README 展示的筛选和评估涉及证券决策场景，自动化部署不应被解释为自动交易或投资执行能力。\",\"许可证在给定仓库元信息中标为未知，尽管根目录存在 LICENSE 文件，实际使用前应核验其内容与合规性。\",\"serve 命令可启动本地 HTTP API；虽然示例绑定 127.0.0.1，但若改为外部监听需要额外评估访问控制。\"],\"detectedFiles\":[\".env.example\",\"LICENSE\",\"MANIFEST.in\",\"README.md\",\"README.zh-CN.md\",\"SKILL.md\",\"pyproject.toml\",\"agents/\",\"alphasift/\",\"docs/\",\"strategies/\",\"tests/\"],\"suspectedPorts\":[8765],\"suspectedCommands\":[\"pip install -e .\",\"cp .env.example .env\",\"alphasift strategies\",\"alphasift overview --explain\",\"alphasift serve --host 127.0.0.1 --port 8765\",\"alphasift quickstart\",\"alphasift screen dual_low --no-llm\",\"alphasift audit\",\"alphasift hotspots --provider none --explain\"],\"confidence\":0.86}",
+  "source_hash": "cf99aa866d9aa8d4b69b533a571bf155a67583448458daf0fc5d5fa419911dcd",
+  "ai_config_id": "1785736666806",
+  "confidence": 0.86,
+  "assessed_at": "2026-08-04T03:50:06.272Z"
+}

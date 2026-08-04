@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, shell, globalShortcut, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, globalShortcut, ipcMain, dialog } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -337,6 +338,169 @@ ipcMain.handle('test-proxy', async (event, config) => {
   } catch (e) { return { success: false, error: e.message }; }
 });
 
+// ── Local deployment Runner ──
+let runnerProcess = null;
+let runnerWorkspaceRoot = null;
+
+function runnerScript(name) {
+  const base = app.isPackaged ? path.join(process.resourcesPath, 'runner') : path.join(__dirname, '..', 'runner');
+  return path.join(base, name);
+}
+
+function runnerStateDir() {
+  return path.join(app.getPath('userData'), 'runner');
+}
+
+function runnerWorkspaceConfigPath() {
+  return path.join(runnerStateDir(), 'workspace.json');
+}
+
+function getRunnerWorkspaceRoot() {
+  if (runnerWorkspaceRoot) return runnerWorkspaceRoot;
+  try {
+    const saved = JSON.parse(fs.readFileSync(runnerWorkspaceConfigPath(), 'utf8'));
+    if (typeof saved.workspaceRoot === 'string') runnerWorkspaceRoot = path.resolve(saved.workspaceRoot);
+  } catch {
+    // No local Runner workspace has been configured yet.
+  }
+  return runnerWorkspaceRoot;
+}
+
+function safeWorkspacePath(value) {
+  const root = getRunnerWorkspaceRoot();
+  if (!root || typeof value !== 'string' || !value.trim()) return null;
+  const candidate = path.resolve(value);
+  const relative = path.relative(root, candidate);
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? candidate : null;
+}
+
+function isLocalBackendUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(url.hostname) && url.pathname.startsWith('/api');
+  } catch {
+    return false;
+  }
+}
+
+function runNodeScript(script, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script], {
+      env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' },
+      windowsHide: true,
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    child.on('error', reject);
+    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `Runner 注册退出，code=${code}`)));
+  });
+}
+
+ipcMain.handle('runner:start', async (_event, input = {}) => {
+  if (runnerProcess && !runnerProcess.killed) return { success: false, alreadyRunning: true, error: '已有本机测试正在执行，请等待其完成后再启动新的测试。' };
+  const backendUrl = typeof input.backendUrl === 'string' ? input.backendUrl : '';
+  if (!isLocalBackendUrl(backendUrl)) {
+    return { success: false, error: 'Runner 仅允许连接本机 /api 后端。' };
+  }
+  const runnerFile = runnerScript('runner.mjs');
+  const registerFile = runnerScript('register.mjs');
+  if (!fs.existsSync(runnerFile) || !fs.existsSync(registerFile)) {
+    return { success: false, error: '未找到 Runner 文件。请重新安装桌面版。' };
+  }
+  const stateDir = runnerStateDir();
+  fs.mkdirSync(stateDir, { recursive: true });
+  const workspaceRoot = typeof input.workspaceRoot === 'string' && input.workspaceRoot.trim() ? input.workspaceRoot.trim() : path.join(stateDir, 'workspace');
+  const taskIds = Array.isArray(input.taskIds) ? input.taskIds.filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim()) : [];
+  if (taskIds.length === 0) return { success: false, error: '请先在项目库中选择要测试的项目。' };
+  runnerWorkspaceRoot = path.resolve(workspaceRoot);
+  fs.writeFileSync(runnerWorkspaceConfigPath(), JSON.stringify({ workspaceRoot: runnerWorkspaceRoot }, null, 2));
+  const env = {
+    BACKEND_URL: backendUrl,
+    AGENT: ['opencode', 'claude-code', 'codex', 'manual'].includes(input.agent) ? input.agent : 'opencode',
+    RUNNER_STATE_FILE: path.join(stateDir, 'runner.json'),
+    WORKSPACE_ROOT: runnerWorkspaceRoot,
+    ...(typeof input.runnerName === 'string' && input.runnerName.trim() ? { RUNNER_NAME: input.runnerName.trim() } : {}),
+    ...(typeof input.model === 'string' && input.model.trim() ? { AGENT_MODEL: input.model.trim() } : {}),
+    ...(input.autoApprove === true ? { AGENT_AUTO_APPROVE: '1' } : {}),
+    ...(input.pureMode === true ? { AGENT_PURE_MODE: '1' } : {}),
+    TASK_IDS: taskIds.join(','),
+  };
+  try {
+    await runNodeScript(registerFile, env);
+    runnerProcess = spawn(process.execPath, [runnerFile], {
+      env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' },
+      windowsHide: false,
+    });
+    runnerProcess.on('exit', () => { runnerProcess = null; });
+    runnerProcess.on('error', () => { runnerProcess = null; });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('runner:getStatus', () => ({ running: !!runnerProcess && !runnerProcess.killed }));
+
+ipcMain.handle('runner:open-workspace', async (_event, workspacePath) => {
+  const safePath = safeWorkspacePath(workspacePath);
+  if (!safePath || !fs.existsSync(safePath)) return { success: false, error: '工作区路径不存在或不属于当前本机 Runner。' };
+  const error = await shell.openPath(safePath);
+  return error ? { success: false, error } : { success: true };
+});
+
+ipcMain.handle('runner:delete-workspace', async (_event, workspacePath) => {
+  const safePath = safeWorkspacePath(workspacePath);
+  if (!safePath || !fs.existsSync(safePath)) return { success: false, error: '工作区路径不存在或不属于当前本机 Runner。' };
+  try {
+    fs.rmSync(safePath, { recursive: true, force: true });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('runner:archive-workspace', async (_event, workspacePath) => {
+  const safePath = safeWorkspacePath(workspacePath);
+  if (!safePath || !fs.existsSync(safePath)) return { success: false, error: '工作区路径不存在或不属于当前本机 Runner。' };
+  const selected = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'], title: '选择测试文件迁移目录' });
+  if (selected.canceled || !selected.filePaths[0]) return { success: false, error: '已取消选择迁移目录。' };
+  const targetPath = path.join(selected.filePaths[0], path.basename(safePath));
+  if (fs.existsSync(targetPath)) return { success: false, error: `目标目录已存在：${targetPath}` };
+  try {
+    try {
+      fs.renameSync(safePath, targetPath);
+    } catch (error) {
+      if (error && error.code !== 'EXDEV') throw error;
+      fs.cpSync(safePath, targetPath, { recursive: true, errorOnExist: true });
+      fs.rmSync(safePath, { recursive: true, force: true });
+    }
+    return { success: true, targetPath };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('runner:test-model', async (_event, input = {}) => {
+  const agent = ['opencode', 'claude-code', 'codex'].includes(input.agent) ? input.agent : 'opencode';
+  const model = typeof input.model === 'string' ? input.model.trim() : '';
+  const prompt = 'Reply with exactly: HOTCHASING_MODEL_OK';
+  const args = agent === 'opencode'
+    ? [...(model ? ['--model', model] : []), 'run', prompt]
+    : agent === 'claude-code'
+      ? ['-p', ...(model ? ['--model', model] : []), prompt]
+      : ['exec', '--full-auto', ...(model ? ['--model', model] : []), prompt];
+  return new Promise((resolve) => {
+    const child = spawn(agent === 'claude-code' ? 'claude' : agent === 'codex' ? 'codex' : 'opencode', args, { windowsHide: true });
+    let output = '';
+    const append = (chunk) => { output = (output + String(chunk)).slice(-4000); };
+    child.stdout.on('data', append);
+    child.stderr.on('data', append);
+    const timer = setTimeout(() => { child.kill('SIGTERM'); resolve({ success: false, error: '模型测试超时', output }); }, 60_000);
+    child.on('error', (error) => { clearTimeout(timer); resolve({ success: false, error: error.message, output }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ success: code === 0 && output.includes('HOTCHASING_MODEL_OK'), error: code === 0 ? undefined : `CLI 退出 code=${code}`, output }); });
+  });
+});
+
 
 // ── MCP local server (read-only tools for agents) ──
 let mcpConfig = {
@@ -419,6 +583,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  runnerProcess?.kill();
   globalShortcut.unregisterAll();
   void mcpServer.stop();
 });

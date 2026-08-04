@@ -372,7 +372,7 @@ export interface AssetFilter {
   icon?: string;
 }
 
-export type HeaderMenuId = 'repositories' | 'gists' | 'releases' | 'forks' | 'subscription' | 'digest' | 'top100' | 'settings';
+export type HeaderMenuId = 'repositories' | 'gists' | 'releases' | 'forks' | 'subscription' | 'digest' | 'top100' | 'fork-lab' | 'settings';
 
 export interface HeaderMenuItem {
   id: HeaderMenuId;
@@ -384,11 +384,12 @@ export const defaultHeaderMenuConfig: HeaderMenuItem[] = [
   { id: 'repositories', visible: true, order: 0 },
   { id: 'gists', visible: true, order: 1 },
   { id: 'releases', visible: true, order: 2 },
-  { id: 'forks', visible: true, order: 3 },
+  { id: 'forks', visible: false, order: 3 },
   { id: 'subscription', visible: true, order: 4 },
   { id: 'digest', visible: true, order: 5 },
   { id: 'top100', visible: true, order: 6 },
-  { id: 'settings', visible: true, order: 7 },
+  { id: 'fork-lab', visible: true, order: 3 },
+  { id: 'settings', visible: true, order: 8 },
 ];
 
 export interface AppState {
@@ -456,7 +457,7 @@ export interface AppState {
   
   // UI
   theme: 'light' | 'dark';
-  currentView: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest' | 'top100';
+  currentView: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest' | 'top100' | 'fork-lab';
   selectedCategory: string;
   language: 'zh' | 'en';
   isSidebarCollapsed: boolean;
