@@ -181,8 +181,21 @@ export function cancelTask(taskId: string): TaskView {
   const db = getDb();
   db.prepare("UPDATE deployment_tasks SET status='CANCELLED', finished_at=?, error_message='用户取消' WHERE id=?").run(new Date().toISOString(), taskId);
   db.prepare('UPDATE deployment_runs SET status=? WHERE task_id=? AND status NOT IN (?,?)').run('CANCELLED', taskId, 'COMPLETED', 'FAILED');
-  db.prepare("UPDATE fork_workspace_projects SET project_status='ARCHIVED' WHERE id=?").run(task.workspace_project_id);
+  syncProjectStatus(task.workspace_project_id);
   return requireTask(taskId);
+}
+
+function syncProjectStatus(projectId: string): void {
+  const db = getDb();
+  const active = db.prepare(`SELECT id FROM deployment_tasks WHERE workspace_project_id=?
+    AND status IN ('QUEUED','CLAIMED','PREPARING','CLONING','AGENT_PLANNING','PLAN_VALIDATING','BUILDING','STARTING','VERIFYING','REPAIRING','REPORTING') LIMIT 1`).get(projectId);
+  if (active) {
+    db.prepare("UPDATE fork_workspace_projects SET project_status='TESTING' WHERE id=?").run(projectId);
+    return;
+  }
+  const deployment = db.prepare('SELECT id FROM local_deployments WHERE workspace_project_id=? LIMIT 1').get(projectId);
+  db.prepare(`UPDATE fork_workspace_projects SET project_status=? WHERE id=?`)
+    .run(deployment ? 'DEPLOYED' : 'PLAN_READY', projectId);
 }
 
 export function deleteTask(taskId: string): void {
@@ -193,8 +206,7 @@ export function deleteTask(taskId: string): void {
     db.prepare('DELETE FROM deployment_runs WHERE task_id=?').run(taskId);
     db.prepare('DELETE FROM local_deployments WHERE task_id=?').run(taskId);
     db.prepare('DELETE FROM deployment_tasks WHERE id=?').run(taskId);
-    const remaining = db.prepare('SELECT COUNT(*) AS c FROM deployment_tasks WHERE workspace_project_id=?').get(task.workspace_project_id) as { c: number };
-    if (remaining.c === 0) db.prepare("UPDATE fork_workspace_projects SET project_status='PLAN_READY' WHERE id=?").run(task.workspace_project_id);
+    syncProjectStatus(task.workspace_project_id);
   })();
 }
 

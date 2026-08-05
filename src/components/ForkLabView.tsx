@@ -149,6 +149,15 @@ function pendingDecision(events: DeploymentTask['events']): HumanDecisionRequest
   }
 }
 
+function taskLogLines(events: DeploymentTask['events']): Array<{ key: string; text: string }> {
+  return (events ?? []).slice(-12).flatMap((event, eventIndex) =>
+    String(event.message ?? '').split(/\r?\n/).filter(Boolean).map((line, lineIndex) => ({
+      key: `${event.created_at}-${eventIndex}-${lineIndex}`,
+      text: `[${event.stage ?? event.event_type}] ${line}`,
+    })),
+  ).slice(-24);
+}
+
 function PlanEditorDialog({
   project,
   onClose,
@@ -338,7 +347,7 @@ function ReportDialog({ projectId, projectName, onClose }: { projectId: string; 
           ? await window.electronAPI.runner.archiveWorkspace(report.workspace_path)
           : await window.electronAPI.runner.deleteWorkspace(report.workspace_path);
       if (!result.success) throw new Error(result.error ?? "工作区操作失败");
-      if (action === "archive") setError("测试文件已迁移到所选目录，项目报告和日志已保留。");
+      if (action === "archive") setError("完整测试包已迁移：包含源码工作区、安装依赖、功能报告、使用说明、日志和测试产物；应用内报告与日志也会保留。");
       if (action === "delete") setError("本地测试文件已删除，项目报告和日志已保留。");
     } catch (err) {
       setError(err instanceof Error ? err.message : "工作区操作失败");
@@ -351,13 +360,13 @@ function ReportDialog({ projectId, projectName, onClose }: { projectId: string; 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-lg border border-black/10 bg-white shadow-dialog dark:border-white/10 dark:bg-panel-dark" onClick={(event) => event.stopPropagation()}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 px-5 py-4 dark:border-white/10">
-          <div><h3 className="text-base font-semibold">{projectName} 的测试报告</h3><p className="mt-1 text-xs text-gray-500">报告随项目保存；清理本地工作区不会删除报告与日志。</p></div>
+          <div><h3 className="text-base font-semibold">{projectName} 的功能报告</h3><p className="mt-1 text-xs text-gray-500">迁移完整测试包会保留源码、依赖、报告、使用说明和日志；清理本地工作区不会删除应用内报告与日志。</p></div>
           <button onClick={onClose} className="rounded-md p-1 hover:bg-gray-100 dark:hover:bg-white/10" aria-label="关闭"><X className="h-5 w-5" /></button>
         </div>
         {loading ? <div className="p-8 text-center text-sm text-gray-500">加载报告中…</div> : !report ? <div className="p-8 text-center text-sm text-gray-500">该项目尚无已保存的测试报告。</div> : <>
           <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
-            <div className="flex gap-1"><button onClick={() => setView("report")} className={`rounded-md px-3 py-1.5 text-sm ${view === "report" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>中文报告</button><button onClick={() => setView("logs")} className={`rounded-md px-3 py-1.5 text-sm ${view === "logs" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>测试日志</button></div>
-            {isElectron() && report.workspace_path && <div className="flex flex-wrap gap-1"><button title="在文件管理器中打开测试工作区" onClick={() => void workspaceAction("open")} disabled={workspaceBusy !== null} className="rounded-md p-2 text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10"><FolderOpen className="h-4 w-4" /></button><button onClick={() => void workspaceAction("archive")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-500/10"><Archive className="h-4 w-4" />转移位置</button><button onClick={() => void workspaceAction("delete")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10"><Trash2 className="h-4 w-4" />删除本地文件</button></div>}
+            <div className="flex gap-1"><button onClick={() => setView("report")} className={`rounded-md px-3 py-1.5 text-sm ${view === "report" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>功能报告</button><button onClick={() => setView("logs")} className={`rounded-md px-3 py-1.5 text-sm ${view === "logs" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>完整日志</button></div>
+            {isElectron() && report.workspace_path && <div className="flex flex-wrap gap-1"><button title="在文件管理器中打开完整测试包" onClick={() => void workspaceAction("open")} disabled={workspaceBusy !== null} className="rounded-md p-2 text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10"><FolderOpen className="h-4 w-4" /></button><button onClick={() => void workspaceAction("archive")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-500/10"><Archive className="h-4 w-4" />迁移完整测试包</button><button onClick={() => void workspaceAction("delete")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10"><Trash2 className="h-4 w-4" />删除本地文件</button></div>}
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-5">{view === "report" ? <MarkdownRenderer content={report.report_markdown} className="rounded-md bg-black/5 p-4 dark:bg-black/30" /> : <pre className="whitespace-pre-wrap break-words rounded-md bg-black/5 p-4 text-xs leading-6 text-gray-800 dark:bg-black/30 dark:text-gray-200">{report.logs_text || "未保存可用的 Agent 测试日志。"}</pre>}</div>
           <div className="border-t border-black/10 px-5 py-3 text-xs text-gray-500 dark:border-white/10">测试完成：{new Date(report.created_at).toLocaleString("zh-CN")} · 状态：{report.status}{report.workspace_path ? ` · 工作区：${report.workspace_path}` : ""}</div>
@@ -589,7 +598,7 @@ function EmptyTab({ icon, title, description }: { icon: React.ReactNode; title: 
   );
 }
 
-function DecisionDialog({ task, request, onClose, onSubmit }: { task: DeploymentTask; request: HumanDecisionRequest; onClose: () => void; onSubmit: (choice: string, note: string) => Promise<void> }) {
+function DecisionPanel({ task, request, onSubmit }: { task: DeploymentTask; request: HumanDecisionRequest; onSubmit: (choice: string, note: string) => Promise<void> }) {
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const options = request.options.length > 0 ? request.options : [
@@ -601,22 +610,19 @@ function DecisionDialog({ task, request, onClose, onSubmit }: { task: Deployment
     setSubmitting(true);
     try {
       await onSubmit(choice, note);
-      onClose();
+      setNote('');
     } finally {
       setSubmitting(false);
     }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-xl rounded-lg border border-black/10 bg-white p-5 shadow-dialog dark:border-white/10 dark:bg-panel-dark" onClick={(event) => event.stopPropagation()}>
-        <h3 className="text-base font-semibold">需要人工确认</h3>
-        <p className="mt-1 text-xs text-gray-500">{task.project?.upstream_full_name ?? task.workspace_project_id}</p>
-        <p className="mt-4 whitespace-pre-wrap text-sm leading-6">{request.question}</p>
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="可选说明" className="mt-4 w-full rounded-md border border-black/10 bg-white p-2 text-sm dark:border-white/10 dark:bg-black/20" />
-        <div className="mt-4 flex flex-wrap justify-end gap-2">
-          <button onClick={onClose} disabled={submitting} className="rounded-md px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10">稍后处理</button>
-          {options.map((option) => <button key={option.id} title={option.description} onClick={() => void submit(option.id)} disabled={submitting} className="rounded-md border border-blue-600 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:text-blue-300 dark:hover:bg-blue-500/10">{submitting ? "提交中…" : option.label}</button>)}
-        </div>
+    <div className="mt-3 border border-amber-300 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-950/30">
+      <h3 className="text-sm font-semibold text-amber-950 dark:text-amber-100">等待你的确认</h3>
+      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-amber-900 dark:text-amber-100">{request.question}</p>
+      <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="补充给 Agent 的说明（可选）" className="mt-3 w-full border border-amber-300 bg-white p-2 text-sm dark:border-amber-700/60 dark:bg-black/20" />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button onClick={() => void submit('note')} disabled={submitting || !note.trim()} className="border border-amber-700 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:text-amber-100 dark:hover:bg-amber-900/40">{submitting ? "提交中…" : "发送说明"}</button>
+        {options.map((option) => <button key={option.id} title={option.description} onClick={() => void submit(option.id)} disabled={submitting} className="border border-amber-700 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:text-amber-100 dark:hover:bg-amber-900/40">{submitting ? "提交中…" : option.label}</button>)}
       </div>
     </div>
   );
@@ -635,7 +641,6 @@ export function ForkLabView() {
   const [failedTasks, setFailedTasks] = useState<DeploymentTask[]>([]);
   const [deployments, setDeployments] = useState<LocalDeployment[]>([]);
   const [tabsLoading, setTabsLoading] = useState(false);
-  const [decisionTask, setDecisionTask] = useState<{ task: DeploymentTask; request: HumanDecisionRequest } | null>(null);
   const [reportProject, setReportProject] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -676,8 +681,8 @@ export function ForkLabView() {
     }
   }, [load]);
 
-  const loadTabData = useCallback(async () => {
-    setTabsLoading(true);
+  const loadTabData = useCallback(async (background = false) => {
+    if (!background) setTabsLoading(true);
     setMessage("");
     try {
       const [running, failed, deploymentsResult] = await Promise.all([
@@ -699,7 +704,7 @@ export function ForkLabView() {
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "加载部署任务失败");
     } finally {
-      setTabsLoading(false);
+      if (!background) setTabsLoading(false);
     }
   }, []);
 
@@ -709,7 +714,7 @@ export function ForkLabView() {
 
   useEffect(() => {
     if (activeTab !== "running") return;
-    const timer = window.setInterval(() => void loadTabData(), 4000);
+    const timer = window.setInterval(() => void loadTabData(true), 1000);
     return () => window.clearInterval(timer);
   }, [activeTab, loadTabData]);
 
@@ -742,6 +747,39 @@ export function ForkLabView() {
     await taskAction(() => deploymentApi.deleteTask(deployment.task_id!));
   };
 
+  const retryTask = async (task: DeploymentTask) => {
+    if (!isElectron() || !window.electronAPI?.runner) {
+      setMessage("重试需要使用 HotChasing 桌面版，以便重新启动本机 Runner。");
+      return;
+    }
+    setTabsLoading(true);
+    setMessage("");
+    let retriedTask: DeploymentTask | null = null;
+    try {
+      retriedTask = (await deploymentApi.retryTask(task.id)).task;
+      const agentConfig = getLocalAgentConfig();
+      const started = await window.electronAPI.runner.start({
+        backendUrl: backend.backendUrl!,
+        agent: agentConfig.agent,
+        taskIds: [retriedTask.id],
+        runnerName: agentConfig.runnerName,
+        workspaceRoot: agentConfig.workspaceRoot,
+        model: agentConfig.model,
+        autoApprove: agentConfig.autoApprove,
+        pureMode: agentConfig.pureMode,
+      });
+      if (!started.success) throw new Error(started.error ?? "启动本机测试失败");
+      setMessage(`已重新启动 ${task.project?.upstream_full_name ?? "该项目"} 的本机测试。`);
+      setActiveTab("running");
+    } catch (err) {
+      if (retriedTask) await deploymentApi.cancelTask(retriedTask.id).catch(() => undefined);
+      setMessage(err instanceof Error ? err.message : "重试启动失败");
+    } finally {
+      await Promise.all([loadTabData(), load()]);
+      setTabsLoading(false);
+    }
+  };
+
   const startSelectedTests = async () => {
     if (selectedIds.size === 0) return;
     if (!isElectron() || !window.electronAPI?.runner) {
@@ -752,13 +790,15 @@ export function ForkLabView() {
     setMessage("");
     let taskIds: string[] = [];
     try {
-      const result = await deploymentApi.createBatch(Array.from(selectedIds));
+      const taskConcurrency = Math.min(2, selectedIds.size);
+      const result = await deploymentApi.createBatch(Array.from(selectedIds), { maxConcurrency: taskConcurrency });
       taskIds = result.tasks.map((task) => task.id);
       const agentConfig = getLocalAgentConfig();
       const started = await window.electronAPI.runner.start({
         backendUrl: backend.backendUrl!,
         agent: agentConfig.agent,
         taskIds,
+        taskConcurrency,
         runnerName: agentConfig.runnerName,
         workspaceRoot: agentConfig.workspaceRoot,
         model: agentConfig.model,
@@ -766,7 +806,7 @@ export function ForkLabView() {
         pureMode: agentConfig.pureMode,
       });
       if (!started.success) throw new Error(started.error ?? "启动本机测试失败");
-      setMessage(`已开始测试 ${result.tasks.length} 个项目。本机 Agent 会只执行本次选择的项目，完成后自动退出。`);
+      setMessage(`已开始测试 ${result.tasks.length} 个项目，最多同时执行 ${taskConcurrency} 个。本机 Agent 完成后自动退出。`);
       setSelectedIds(new Set());
       setActiveTab("running");
       await loadTabData();
@@ -945,7 +985,7 @@ export function ForkLabView() {
           <p className="text-sm text-gray-500">
             正在测试的项目（每 4 秒刷新，共 {runningTasks.length} 项）。
           </p>
-          {tabsLoading ? (
+          {tabsLoading && runningTasks.length === 0 ? (
             <div className="flex items-center justify-center py-10 text-gray-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…</div>
           ) : runningTasks.length === 0 ? (
             <EmptyTab icon={<Loader2 className="h-6 w-6" />} title="暂无测试中的项目" description="批量开始测试后，项目进度会实时显示在这里。" />
@@ -969,23 +1009,23 @@ export function ForkLabView() {
                     <button onClick={() => void clearTask(task, true)} className="rounded-lg px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">停止并清除</button>
                   </div>
                   {pendingDecision(task.events) && (
-                    <button
-                      onClick={() => setDecisionTask({ task, request: pendingDecision(task.events)! })}
-                      className="mt-3 rounded-lg border border-amber-600 px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-500/10"
-                    >
-                      需要人工确认
-                    </button>
+                    <DecisionPanel
+                      task={task}
+                      request={pendingDecision(task.events)!}
+                      onSubmit={async (choice, note) => {
+                        await deploymentApi.submitDecision(task.id, pendingDecision(task.events)?.requestId, choice, note || undefined);
+                        await loadTabData();
+                      }}
+                    />
                   )}
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
                     <div className="h-full rounded-full bg-indigo-600" style={{ width: `${Math.max(2, Math.round(task.progress ?? 0))}%` }} />
                   </div>
-                  {task.events && task.events.length > 0 && (
-                    <div className="mt-3 max-h-28 overflow-auto rounded-md bg-black/5 p-2 font-mono text-xs text-gray-600 dark:bg-black/30 dark:text-gray-300">
-                      {task.events.slice(-4).map((event, index) => (
-                        <p key={`${event.created_at}-${index}`} className="break-words">[{event.stage ?? event.event_type}] {event.message}</p>
-                      ))}
-                    </div>
-                  )}
+                      {taskLogLines(task.events).length > 0 && (
+                        <div className="mt-3 max-h-28 overflow-auto rounded-md bg-black/5 p-2 font-mono text-xs text-gray-600 dark:bg-black/30 dark:text-gray-300">
+                       {taskLogLines(task.events).map((line) => <p key={line.key} className="break-words">{line.text}</p>)}
+                        </div>
+                      )}
                 </div>
               ))}
             </div>
@@ -1050,10 +1090,16 @@ export function ForkLabView() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => void taskAction(() => deploymentApi.retryTask(task.id))}
+                        onClick={() => void retryTask(task)}
                         className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10"
                       >
                         重试
+                      </button>
+                      <button
+                        onClick={() => setReportProject({ id: task.workspace_project_id, name: task.project?.upstream_full_name ?? task.workspace_project_id })}
+                        className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+                      >
+                        <FileText className="h-4 w-4" /> 查看报告
                       </button>
                       {task.status !== "MANUAL_REQUIRED" && (
                         <button
@@ -1073,17 +1119,6 @@ export function ForkLabView() {
         </div>
       )}
 
-      {decisionTask && (
-        <DecisionDialog
-          task={decisionTask.task}
-          request={decisionTask.request}
-          onClose={() => setDecisionTask(null)}
-          onSubmit={async (choice, note) => {
-            await deploymentApi.submitDecision(decisionTask.task.id, decisionTask.request.requestId, choice, note || undefined);
-            await loadTabData();
-          }}
-        />
-      )}
       {reportProject && <ReportDialog projectId={reportProject.id} projectName={reportProject.name} onClose={() => setReportProject(null)} />}
 
     </section>

@@ -39,7 +39,7 @@ export interface McpElectronAPI {
 }
 
 export interface RunnerElectronAPI {
-  start: (config: { backendUrl: string; agent: 'opencode' | 'claude-code' | 'codex' | 'manual'; taskIds: string[]; runnerName?: string; workspaceRoot?: string; model?: string; autoApprove?: boolean; pureMode?: boolean }) => Promise<{ success: boolean; alreadyRunning?: boolean; error?: string }>;
+  start: (config: { backendUrl: string; agent: 'opencode' | 'claude-code' | 'codex' | 'manual'; taskIds: string[]; taskConcurrency?: number; runnerName?: string; workspaceRoot?: string; model?: string; autoApprove?: boolean; pureMode?: boolean }) => Promise<{ success: boolean; alreadyRunning?: boolean; error?: string }>;
   getStatus: () => Promise<{ running: boolean }>;
   testModel: (config: { agent: 'opencode' | 'claude-code' | 'codex'; model?: string }) => Promise<{ success: boolean; error?: string; output?: string }>;
   openWorkspace: (workspacePath: string) => Promise<{ success: boolean; error?: string }>;

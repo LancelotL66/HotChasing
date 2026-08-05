@@ -31,6 +31,7 @@ vi.mock('../services/deploymentApi', () => ({
     cancelTask: vi.fn(),
     retryTask: vi.fn(),
     markManual: vi.fn(),
+    submitDecision: vi.fn(),
     listDeployments: vi.fn(),
     listRunners: vi.fn(),
   },
@@ -137,6 +138,40 @@ describe('ForkLabView', () => {
     fireEvent.click(await screen.findByText('批量生成部署分析'));
     await waitFor(() => expect(mockForkLabApi.generateAssessment).toHaveBeenCalledWith('proj-1'));
     await waitFor(() => expect(screen.getByText(/批量操作完成/)).toBeTruthy());
+  });
+
+  it('shows inline human decision controls and submits the selected option', async () => {
+    const task = {
+      id: 'task-1', workspace_project_id: 'proj-1', status: 'AGENT_PLANNING', current_stage: 'AGENT_PLANNING', progress: 25,
+      project: { upstream_full_name: 'owner/demo-app', source: 'digest', fork_status: 'READY' },
+      events: [{ event_type: 'stage', stage: 'WAITING_FOR_INPUT', message: JSON.stringify({ requestId: 'request-1', question: '是否允许下载 Go 工具链？', options: [{ id: 'allow_workspace_provisioning', label: '允许隔离依赖' }] }), created_at: '2026-08-01T00:00:00.000Z' }],
+    } as never;
+    mockDeploymentApi.listTasks.mockImplementation(async (status) => ({ tasks: status === 'running' ? [task] : [] }));
+    mockDeploymentApi.getTask.mockResolvedValue({ task, events: task.events });
+    mockDeploymentApi.submitDecision.mockResolvedValue({ ok: true });
+    render(<ForkLabView />);
+    fireEvent.click(screen.getAllByRole('button', { name: '测试中' })[0]);
+    expect(await screen.findByText('是否允许下载 Go 工具链？')).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('补充给 Agent 的说明（可选）'), { target: { value: '仅测试工作区内使用' } });
+    fireEvent.click(screen.getByRole('button', { name: '允许隔离依赖' }));
+    await waitFor(() => expect(mockDeploymentApi.submitDecision).toHaveBeenCalledWith('task-1', 'request-1', 'allow_workspace_provisioning', '仅测试工作区内使用'));
+  });
+
+  it('sends a clarification without treating it as an authorization option', async () => {
+    const task = {
+      id: 'task-note', workspace_project_id: 'proj-1', status: 'AGENT_PLANNING', current_stage: 'AGENT_PLANNING', progress: 25,
+      project: { upstream_full_name: 'owner/demo-app', source: 'digest', fork_status: 'READY' },
+      events: [{ event_type: 'stage', stage: 'WAITING_FOR_INPUT', message: JSON.stringify({ requestId: 'request-note', question: '需要更多信息。', options: [] }), created_at: '2026-08-01T00:00:00.000Z' }],
+    } as never;
+    mockDeploymentApi.listTasks.mockImplementation(async (status) => ({ tasks: status === 'running' ? [task] : [] }));
+    mockDeploymentApi.getTask.mockResolvedValue({ task, events: task.events });
+    mockDeploymentApi.submitDecision.mockResolvedValue({ ok: true });
+    render(<ForkLabView />);
+    fireEvent.click(screen.getAllByRole('button', { name: '测试中' })[0]);
+    await screen.findByText('需要更多信息。');
+    fireEvent.change(screen.getByPlaceholderText('补充给 Agent 的说明（可选）'), { target: { value: '请只检查官方发布包。' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送说明' }));
+    await waitFor(() => expect(mockDeploymentApi.submitDecision).toHaveBeenCalledWith('task-note', 'request-note', 'note', '请只检查官方发布包。'));
   });
 
   it('generates a plan and opens the editor, then saves edits', async () => {

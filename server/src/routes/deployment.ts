@@ -74,7 +74,7 @@ router.get('/api/deployment/tasks', (req, res) => {
     if (status === 'queued') tasks = listTasksByStatuses(['QUEUED']);
     else if (status === 'running') tasks = listTasksByStatuses(['QUEUED', 'CLAIMED', 'PREPARING', 'CLONING', 'AGENT_PLANNING', 'PLAN_VALIDATING', 'BUILDING', 'STARTING', 'VERIFYING', 'REPAIRING', 'REPORTING']);
     else if (status === 'done') tasks = listTasksByStatuses(['COMPLETED']);
-    else if (status === 'failed') tasks = listTasksByStatuses(['FAILED', 'BLOCKED', 'MANUAL_REQUIRED']);
+    else if (status === 'failed') tasks = listTasksByStatuses(['FAILED', 'BLOCKED', 'CANCELLED', 'MANUAL_REQUIRED']);
     else tasks = listTasks();
     res.json({ tasks });
   } catch (error) {

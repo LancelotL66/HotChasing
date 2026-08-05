@@ -121,6 +121,14 @@ async function processTask(bundle) {
     });
     const reportPath = path.join(outputDir, 'report.md');
     const reportMarkdown = fs.existsSync(reportPath) ? fs.readFileSync(reportPath, 'utf8') : undefined;
+    const decisionPath = path.join(inputDir, 'decision-response.json');
+    let deferredByDecision = false;
+    try {
+      const decision = JSON.parse(fs.readFileSync(decisionPath, 'utf8'));
+      deferredByDecision = ['prepare_and_retry', 'skip'].includes(String(decision.choice));
+    } catch {
+      // No decision was submitted for this task.
+    }
 
     await api(`/runners/${config.runnerId}/tasks/${taskId}/events`, { method: 'POST', body: { eventType: 'stage', stage: 'VERIFYING', message: 'Runner 校验部署结果' } });
     const verified = await verifyTask({ result, bundle, outputDir });
@@ -140,19 +148,22 @@ async function processTask(bundle) {
       });
       logWithTask(`任务完成：${verified.details.join('；')}`);
     } else {
+      const status = deferredByDecision ? 'BLOCKED' : 'FAILED';
       await api(`/runners/${config.runnerId}/tasks/${taskId}/complete`, {
         method: 'POST',
         body: {
-          status: 'FAILED',
+          status,
           stage: 'REPORTING',
           result,
-          errorMessage: `校验失败：${verified.details.join('；')}`,
+          errorMessage: deferredByDecision
+            ? `人工选择暂不准备依赖，任务保留为受限：${verified.details.join('；')}`
+            : `校验失败：${verified.details.join('；')}`,
           workspacePath: workspaceDir,
           reportMarkdown,
           logsText: agentLogLines.join('\n').slice(-1_000_000),
         },
       });
-      logWithTask(`任务校验失败：${verified.details.join('；')}`);
+      logWithTask(`${deferredByDecision ? '任务受限' : '任务校验失败'}：${verified.details.join('；')}`);
     }
   } catch (error) {
     logWithTask(`任务失败：${error.message}`);
@@ -180,15 +191,22 @@ async function main() {
   heartbeatTimer = setInterval(() => void sendHeartbeat(), config.heartbeatMs);
 
   try {
-    for (const taskId of config.taskIds) {
-      try {
-        const claim = await api(`/runners/${config.runnerId}/claim-task/${encodeURIComponent(taskId)}`, { method: 'POST', body: {} });
-        log(`开始指定任务 ${claim.task.task.id}`);
-        await processTask(claim.task);
-      } catch (error) {
-        log(`指定任务 ${taskId} 启动/处理失败：${error.message}`);
+    const pendingTaskIds = [...config.taskIds];
+    const workerCount = Math.min(config.taskConcurrency, pendingTaskIds.length);
+    log(`并发执行 ${pendingTaskIds.length} 个任务，最大并发数=${workerCount}`);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (pendingTaskIds.length > 0) {
+        const taskId = pendingTaskIds.shift();
+        if (!taskId) return;
+        try {
+          const claim = await api(`/runners/${config.runnerId}/claim-task/${encodeURIComponent(taskId)}`, { method: 'POST', body: {} });
+          log(`开始指定任务 ${claim.task.task.id}`);
+          await processTask(claim.task);
+        } catch (error) {
+          log(`指定任务 ${taskId} 启动/处理失败：${error.message}`);
+        }
       }
-    }
+    }));
   } finally {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;

@@ -207,6 +207,7 @@ describe('Deployment tasks and runners (M4/M5)', () => {
     await request(app).post(`/api/deployment/tasks/${taskId}/cancel`).expect(200);
     const detail = await request(app).get(`/api/deployment/tasks/${taskId}`).expect(200);
     expect(detail.body.task.status).toBe('CANCELLED');
+    expect(fakeDb.tables.fork_workspace_projects.get('proj-1')!.project_status).toBe('PLAN_READY');
   });
 
   it('retries a failed task back to queued', async () => {
@@ -217,5 +218,17 @@ describe('Deployment tasks and runners (M4/M5)', () => {
     await request(app).post(`/api/deployment/tasks/${taskId}/retry`).expect(200);
     const detail = await request(app).get(`/api/deployment/tasks/${taskId}`).expect(200);
     expect(detail.body.task.status).toBe('QUEUED');
+  });
+
+  it('lists cancelled tasks in failed view and restores a project after cleanup', async () => {
+    const app = createApp();
+    const created = await request(app).post('/api/deployment/batches').send({ projectIds: ['proj-1'] }).expect(201);
+    const taskId = created.body.tasks[0].id;
+    await request(app).post(`/api/deployment/tasks/${taskId}/cancel`).expect(200);
+    const failed = await request(app).get('/api/deployment/tasks?status=failed').expect(200);
+    expect(failed.body.tasks).toHaveLength(1);
+    expect(failed.body.tasks[0]).toMatchObject({ id: taskId, status: 'CANCELLED' });
+    await request(app).delete(`/api/deployment/tasks/${taskId}`).expect(200);
+    expect(fakeDb.tables.fork_workspace_projects.get('proj-1')!.project_status).toBe('PLAN_READY');
   });
 });

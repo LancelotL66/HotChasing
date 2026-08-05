@@ -26,6 +26,7 @@ export const config = {
   heartbeatMs: Number(process.env.HEARTBEAT_MS || 30 * 1000),
   pollMs: Number(process.env.POLL_MS || 10 * 1000),
   taskIds: (process.env.TASK_IDS || '').split(',').map((value) => value.trim()).filter(Boolean),
+  taskConcurrency: Math.min(4, Math.max(1, Number(process.env.TASK_CONCURRENCY || 2) || 2)),
   maxRepairIterations: Number(process.env.MAX_REPAIR_ITERATIONS || 1),
   apiSecret: process.env.API_SECRET || '',
   skipClone: boolEnv('SKIP_CLONE', false),

@@ -96,7 +96,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const deploymentApi = {
-  createBatch: (projectIds: string[], options: { testLevel?: string; name?: string } = {}) =>
+  createBatch: (projectIds: string[], options: { testLevel?: string; name?: string; maxConcurrency?: number } = {}) =>
     request<{ batchId: string; tasks: DeploymentTask[] }>('/deployment/batches', { method: 'POST', body: JSON.stringify({ projectIds, ...options }) }),
   listBatches: () => request<{ batches: DeploymentBatch[] }>('/deployment/batches'),
   listTasks: (status?: 'queued' | 'running' | 'done' | 'failed') =>

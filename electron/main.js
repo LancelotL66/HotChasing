@@ -342,6 +342,7 @@ ipcMain.handle('test-proxy', async (event, config) => {
 // ── Local deployment Runner ──
 let runnerProcess = null;
 let runnerWorkspaceRoot = null;
+let runnerTaskIds = [];
 
 function runnerScript(name) {
   const base = app.isPackaged ? path.join(process.resourcesPath, 'runner') : path.join(__dirname, '..', 'runner');
@@ -382,6 +383,37 @@ function isLocalBackendUrl(value) {
   } catch {
     return false;
   }
+}
+
+function isRunnerProcessAlive() {
+  return Boolean(runnerProcess && runnerProcess.exitCode === null && !runnerProcess.killed);
+}
+
+async function hasActiveRunnerTasks(backendUrl) {
+  const activeStatuses = new Set(['QUEUED', 'CLAIMED', 'PREPARING', 'CLONING', 'AGENT_PLANNING', 'PLAN_VALIDATING', 'BUILDING', 'STARTING', 'VERIFYING', 'REPAIRING', 'REPORTING']);
+  for (const taskId of runnerTaskIds) {
+    try {
+      const response = await fetch(`${backendUrl}/deployment/tasks/${encodeURIComponent(taskId)}`, { cache: 'no-store' });
+      const body = await response.json();
+      if (response.ok && activeStatuses.has(body.task?.status)) return true;
+    } catch {
+      // A failed status lookup is not proof of an active task.
+    }
+  }
+  return false;
+}
+
+async function clearStaleRunner(backendUrl) {
+  if (!isRunnerProcessAlive()) {
+    runnerProcess = null;
+    runnerTaskIds = [];
+    return false;
+  }
+  if (await hasActiveRunnerTasks(backendUrl)) return true;
+  runnerProcess.kill();
+  runnerProcess = null;
+  runnerTaskIds = [];
+  return false;
 }
 
 function normalizeWorkspaceRoot(value) {
@@ -432,11 +464,11 @@ async function waitForTaskClaim(backendUrl, taskIds) {
 }
 
 ipcMain.handle('runner:start', async (_event, input = {}) => {
-  if (runnerProcess && !runnerProcess.killed) return { success: false, alreadyRunning: true, error: '已有本机测试正在执行，请等待其完成后再启动新的测试。' };
   const backendUrl = typeof input.backendUrl === 'string' ? input.backendUrl : '';
   if (!isLocalBackendUrl(backendUrl)) {
     return { success: false, error: 'Runner 仅允许连接本机 /api 后端。' };
   }
+  if (await clearStaleRunner(backendUrl)) return { success: false, alreadyRunning: true, error: '已有本机测试正在执行，请等待其完成后再启动新的测试。' };
   const runnerFile = runnerScript('runner.mjs');
   const registerFile = runnerScript('register.mjs');
   if (!fs.existsSync(runnerFile) || !fs.existsSync(registerFile)) {
@@ -461,6 +493,7 @@ ipcMain.handle('runner:start', async (_event, input = {}) => {
     ...(input.autoApprove === true ? { AGENT_AUTO_APPROVE: '1' } : {}),
     ...(input.pureMode === true ? { AGENT_PURE_MODE: '1' } : {}),
     TASK_IDS: taskIds.join(','),
+    TASK_CONCURRENCY: String(Math.min(4, Math.max(1, Number(input.taskConcurrency) || 2))),
   };
   try {
     await runNodeScript(registerFile, env);
@@ -468,30 +501,43 @@ ipcMain.handle('runner:start', async (_event, input = {}) => {
       ? path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe')
       : process.execPath;
     const executable = fs.existsSync(nodeExecutable) ? nodeExecutable : process.execPath;
-    runnerProcess = spawn(executable, [runnerFile], {
+    const child = spawn(executable, [runnerFile], {
       env: { ...process.env, ...env, ...(executable === process.execPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}) },
       windowsHide: true,
       // Runner uploads Agent output to the backend itself. Leaving stdout unread
       // here can fill the Windows pipe and stop its heartbeat during verbose tests.
       stdio: ['ignore', 'ignore', 'pipe'],
     });
-    runnerProcess.stderr.on('data', (chunk) => console.error(`[runner] ${String(chunk).trimEnd()}`));
-    runnerProcess.on('exit', (code, signal) => {
+    runnerProcess = child;
+    runnerTaskIds = taskIds;
+    child.stderr.on('data', (chunk) => console.error(`[runner] ${String(chunk).trimEnd()}`));
+    child.on('exit', (code, signal) => {
       console.error(`[runner] exited code=${code} signal=${signal ?? 'none'}`);
-      runnerProcess = null;
+      if (runnerProcess === child) {
+        runnerProcess = null;
+        runnerTaskIds = [];
+      }
     });
-    runnerProcess.on('error', (error) => {
+    child.on('error', (error) => {
       console.error(`[runner] failed to start: ${error.message}`);
-      runnerProcess = null;
+      if (runnerProcess === child) {
+        runnerProcess = null;
+        runnerTaskIds = [];
+      }
     });
     await waitForTaskClaim(backendUrl, taskIds);
     return { success: true };
   } catch (error) {
+    if (runnerProcess) {
+      runnerProcess.kill();
+      runnerProcess = null;
+      runnerTaskIds = [];
+    }
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 });
 
-ipcMain.handle('runner:getStatus', () => ({ running: !!runnerProcess && !runnerProcess.killed }));
+ipcMain.handle('runner:getStatus', () => ({ running: isRunnerProcessAlive() }));
 
 ipcMain.handle('runner:open-workspace', async (_event, workspacePath) => {
   const safePath = safeWorkspacePath(workspacePath);

@@ -60,7 +60,58 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
     let initTimer;
     let decisionRequest = '';
     let decisionInFlight = false;
+    let waitingForDecision = false;
+    let agentExitedWhileWaiting = false;
+    let restartAfterDecision = false;
+    let settled = false;
     const decisionFile = path.join(outputDir, 'decision-request.json');
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(initTimer);
+      cleanup();
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const launchAgent = (continuation = false) => {
+      if (settled) return;
+      if (continuation) {
+        fs.rmSync(path.join(outputDir, 'result.json'), { force: true });
+        fs.rmSync(path.join(outputDir, 'report.md'), { force: true });
+        log('[opencode] 已收到人工决策，重新唤起 Agent 读取 decision-response.json');
+      }
+      try {
+        child = pty.spawn(resolveCli('opencode'), ['run', ...(config.agentPureMode ? ['--pure'] : []), ...(config.agentModel ? ['--model', config.agentModel] : []), ...(config.agentAutoApprove ? ['--auto'] : []), '--print-logs', instruction], { cwd: repoDir, env: process.env, name: 'xterm-color', cols: 120, rows: 36 });
+      } catch (error) {
+        finish(new Error(`无法启动 opencode：${error.message}。请安装 opencode 或改用 AGENT=manual`));
+        return;
+      }
+      child.onData((data) => {
+        const text = String(data).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+        if (/message=(created|process)|stream providerID=/.test(text)) { initialized = true; clearTimeout(initTimer); }
+        log(`[opencode] ${text.trimEnd()}`);
+      });
+      child.onExit(({ exitCode }) => {
+        if (settled) return;
+        if (waitingForDecision) {
+          agentExitedWhileWaiting = true;
+          log(`[opencode] 等待人工决策期间退出（code=${exitCode}），收到响应后将继续。`);
+          return;
+        }
+        if (restartAfterDecision) {
+          restartAfterDecision = false;
+          launchAgent(true);
+          return;
+        }
+        const result = readResult(outputDir);
+        if (!result) {
+          finish(new Error(`opencode 退出（code=${exitCode}）但未生成 result.json`));
+          return;
+        }
+        finish(null, { result, adapter: 'opencode' });
+      });
+    };
     const decisionTimer = setInterval(async () => {
       if (!onDecisionRequest || decisionInFlight || !fs.existsSync(decisionFile)) return;
       try {
@@ -69,7 +120,17 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
         const request = JSON.parse(raw);
         decisionRequest = raw;
         decisionInFlight = true;
+        waitingForDecision = true;
         await onDecisionRequest(request);
+        waitingForDecision = false;
+        if (agentExitedWhileWaiting) {
+          agentExitedWhileWaiting = false;
+          launchAgent(true);
+        } else {
+          // A fresh invocation is required so OpenCode cannot continue with stale pre-decision context.
+          restartAfterDecision = true;
+          child.kill();
+        }
       } catch (error) {
         log(`[opencode] 人工决策请求处理失败：${error.message}`);
       } finally {
@@ -77,37 +138,16 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
       }
     }, 1000);
     const cleanup = () => clearInterval(decisionTimer);
-    try {
-      child = pty.spawn(resolveCli('opencode'), ['run', ...(config.agentPureMode ? ['--pure'] : []), ...(config.agentModel ? ['--model', config.agentModel] : []), ...(config.agentAutoApprove ? ['--auto'] : []), '--print-logs', instruction], { cwd: repoDir, env: process.env, name: 'xterm-color', cols: 120, rows: 36 });
-    } catch (error) {
-      reject(new Error(`无法启动 opencode：${error.message}。请安装 opencode 或改用 AGENT=manual`));
-      return;
-    }
     const timer = setTimeout(() => {
       child.kill();
-      cleanup();
-      reject(new Error('opencode 运行超时'));
+      finish(new Error('opencode 运行超时'));
     }, config.agentTimeoutMs);
     initTimer = setTimeout(() => {
       if (initialized) return;
       child.kill();
-      cleanup();
-      reject(new Error('OpenCode 初始化超过 60 秒，未创建会话。请检查项目配置或改用其他本地 Agent。'));
+      finish(new Error('OpenCode 初始化超过 60 秒，未创建会话。请检查项目配置或改用其他本地 Agent。'));
     }, 60_000);
-    child.onData((data) => {
-      const text = String(data).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-      if (/message=(created|process)|stream providerID=/.test(text)) { initialized = true; clearTimeout(initTimer); }
-      log(`[opencode] ${text.trimEnd()}`);
-    });
-    child.onExit(({ exitCode }) => {
-      clearTimeout(timer); clearTimeout(initTimer); cleanup();
-      const result = readResult(outputDir);
-      if (!result) {
-        reject(new Error(`opencode 退出（code=${exitCode}）但未生成 result.json`));
-        return;
-      }
-      resolve({ result, adapter: 'opencode' });
-    });
+    launchAgent();
   });
 }
 
