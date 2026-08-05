@@ -267,6 +267,44 @@ add('enrichment_readme', 'TEXT');
         ON project_test_reports(workspace_project_id, created_at DESC);
     `);
   },
+  12: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS local_test_reports (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL UNIQUE,
+        workspace_project_id TEXT NOT NULL,
+        report_status TEXT NOT NULL,
+        deployment_value TEXT,
+        confidence TEXT,
+        user_report_json TEXT,
+        user_report_markdown TEXT,
+        claim_validation_json TEXT,
+        generated_at TEXT,
+        finalized_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS local_test_artifacts (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        artifact_type TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        size_bytes INTEGER,
+        checksum TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(task_id, relative_path)
+      );
+      CREATE TABLE IF NOT EXISTS local_test_decisions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        request_json TEXT NOT NULL,
+        response_json TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_local_test_artifacts_task ON local_test_artifacts(task_id);
+    `);
+  },
 };
 
 export function runMigrations(db: Database.Database): void {

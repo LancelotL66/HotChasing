@@ -7,6 +7,7 @@ import { cloneRepository } from './lib/git.mjs';
 import { writeBundle } from './lib/bundle.mjs';
 import { createAdapter } from './lib/adapters.mjs';
 import { verifyTask } from './lib/verify.mjs';
+import { generateUserReport } from './lib/user-report.mjs';
 
 const adapter = createAdapter(config.agent);
 
@@ -119,8 +120,14 @@ async function processTask(bundle) {
         throw new Error('等待人工决策超时');
       },
     });
-    const reportPath = path.join(outputDir, 'report.md');
-    const reportMarkdown = fs.existsSync(reportPath) ? fs.readFileSync(reportPath, 'utf8') : undefined;
+    const generatedReport = generateUserReport({ taskId, outputDir, inputDir, fallbackResult: result, startedAt: bundle.task.started_at });
+    const reportMarkdown = generatedReport.markdown;
+    const artifactManifest = ['USER_REPORT.md', 'user-report.json', 'capability-matrix.json', 'usage-playbook.json', 'comparison.json', 'technical/execution-result.json', 'technical/stages.json', 'technical/TECHNICAL_REPORT.md', 'deployment-package/AGENT_TASK.md']
+      .map((relativePath) => {
+        const file = path.join(outputDir, relativePath);
+        if (!fs.existsSync(file)) return null;
+        return { type: relativePath.startsWith('technical/') ? 'TECHNICAL' : relativePath.startsWith('deployment-package/') ? 'DEPLOYMENT_PACKAGE' : 'USER_REPORT', path: relativePath, sizeBytes: fs.statSync(file).size };
+      }).filter(Boolean);
     const decisionPath = path.join(inputDir, 'decision-response.json');
     let deferredByDecision = false;
     try {
@@ -131,7 +138,7 @@ async function processTask(bundle) {
     }
 
     await api(`/runners/${config.runnerId}/tasks/${taskId}/events`, { method: 'POST', body: { eventType: 'stage', stage: 'VERIFYING', message: 'Runner 校验部署结果' } });
-    const verified = await verifyTask({ result, bundle, outputDir });
+    const verified = await verifyTask({ result: generatedReport.execution, bundle, outputDir });
 
     if (verified.passed) {
       await api(`/runners/${config.runnerId}/tasks/${taskId}/complete`, {
@@ -139,11 +146,14 @@ async function processTask(bundle) {
         body: {
           status: 'COMPLETED',
           stage: 'REPORTING',
-          result,
+          result: generatedReport.execution,
           ports: verified.port ? [verified.port] : [],
           workspacePath: workspaceDir,
           reportMarkdown,
           logsText: agentLogLines.join('\n').slice(-1_000_000),
+          userReport: generatedReport.report,
+          executionResult: generatedReport.execution,
+          artifactManifest,
         },
       });
       logWithTask(`任务完成：${verified.details.join('；')}`);
@@ -154,13 +164,16 @@ async function processTask(bundle) {
         body: {
           status,
           stage: 'REPORTING',
-          result,
+          result: generatedReport.execution,
           errorMessage: deferredByDecision
             ? `人工选择暂不准备依赖，任务保留为受限：${verified.details.join('；')}`
             : `校验失败：${verified.details.join('；')}`,
           workspacePath: workspaceDir,
           reportMarkdown,
           logsText: agentLogLines.join('\n').slice(-1_000_000),
+          userReport: generatedReport.report,
+          executionResult: generatedReport.execution,
+          artifactManifest,
         },
       });
       logWithTask(`${deferredByDecision ? '任务受限' : '任务校验失败'}：${verified.details.join('；')}`);
@@ -168,9 +181,16 @@ async function processTask(bundle) {
   } catch (error) {
     logWithTask(`任务失败：${error.message}`);
     try {
+      const generatedReport = generateUserReport({
+        taskId,
+        outputDir: path.join(workspaceDir, 'output'),
+        inputDir: path.join(workspaceDir, 'input'),
+        fallbackResult: { status: 'failed', summary: `执行未完成：${error.message}`, notes: '未能收集完整 Agent 输出。' },
+        startedAt: bundle.task.started_at,
+      });
       await api(`/runners/${config.runnerId}/tasks/${taskId}/complete`, {
         method: 'POST',
-        body: { status: 'FAILED', errorMessage: error.message, workspacePath: workspaceDir },
+        body: { status: 'FAILED', errorMessage: error.message, workspacePath: workspaceDir, result: generatedReport.execution, reportMarkdown: generatedReport.markdown, userReport: generatedReport.report, executionResult: generatedReport.execution },
       });
     } catch {
       // 忽略上报失败

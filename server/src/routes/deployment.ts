@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { createTasks, listTasks, listTasksByStatuses, requireTask, cancelTask, deleteTask, retryTask, markManual, listEvents, listLocalDeployments, getTask, blockTasksWithOfflineRunners, listProjectReports, addEvent } from '../deployment/taskService.js';
+import { createTasks, listTasks, listTasksByStatuses, requireTask, cancelTask, deleteTask, retryTask, markManual, listEvents, listLocalDeployments, getTask, blockTasksWithOfflineRunners, listProjectReports, listTaskArtifacts, addEvent } from '../deployment/taskService.js';
 import { listBatches, getBatch } from '../deployment/batchService.js';
 
 const router = Router();
@@ -161,6 +161,15 @@ router.get('/api/deployment/tasks/:id/events', (req, res) => {
 router.get('/api/deployment/projects/:projectId/reports', (req, res) => {
   try {
     res.json({ reports: listProjectReports(req.params.projectId) });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+// GET /api/deployment/tasks/:id/artifacts — metadata only; files remain in the isolated workspace.
+router.get('/api/deployment/tasks/:id/artifacts', (req, res) => {
+  try {
+    res.json({ artifacts: listTaskArtifacts(req.params.id) });
   } catch (error) {
     handleError(res, error);
   }

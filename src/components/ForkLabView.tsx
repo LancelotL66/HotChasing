@@ -324,7 +324,7 @@ function ReportDialog({ projectId, projectName, onClose }: { projectId: string; 
   const [reports, setReports] = useState<ProjectTestReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [view, setView] = useState<"report" | "logs">("report");
+  const [view, setView] = useState<"report" | "capabilities" | "usage" | "package" | "technical" | "logs">("report");
   const [workspaceBusy, setWorkspaceBusy] = useState<"open" | "archive" | "delete" | null>(null);
 
   useEffect(() => {
@@ -335,6 +335,9 @@ function ReportDialog({ projectId, projectName, onClose }: { projectId: string; 
   }, [projectId]);
 
   const report = reports[0];
+  const userReport = (() => { try { return report?.user_report_json ? JSON.parse(report.user_report_json) as Record<string, unknown> : null; } catch { return null; } })();
+  const capabilities = Array.isArray(userReport?.featureTable) ? userReport.featureTable as Array<Record<string, unknown>> : [];
+  const workflows = Array.isArray(userReport?.usageSummary) ? userReport.usageSummary as string[] : [];
   const workspaceAction = async (action: "open" | "archive" | "delete") => {
     if (!report?.workspace_path || !window.electronAPI?.runner) return;
     if (action === "delete" && !window.confirm("删除此任务的全部本地测试文件？已保存的项目报告和日志不会删除。")) return;
@@ -360,15 +363,22 @@ function ReportDialog({ projectId, projectName, onClose }: { projectId: string; 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-lg border border-black/10 bg-white shadow-dialog dark:border-white/10 dark:bg-panel-dark" onClick={(event) => event.stopPropagation()}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 px-5 py-4 dark:border-white/10">
-          <div><h3 className="text-base font-semibold">{projectName} 的功能报告</h3><p className="mt-1 text-xs text-gray-500">迁移完整测试包会保留源码、依赖、报告、使用说明和日志；清理本地工作区不会删除应用内报告与日志。</p></div>
+          <div><h3 className="text-base font-semibold">{projectName} 的本地使用评估</h3><p className="mt-1 text-xs text-gray-500">默认展示面向用户的结论；技术证据、任务包和授权记录保留在完整测试包中。</p></div>
           <button onClick={onClose} className="rounded-md p-1 hover:bg-gray-100 dark:hover:bg-white/10" aria-label="关闭"><X className="h-5 w-5" /></button>
         </div>
         {loading ? <div className="p-8 text-center text-sm text-gray-500">加载报告中…</div> : !report ? <div className="p-8 text-center text-sm text-gray-500">该项目尚无已保存的测试报告。</div> : <>
           <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
-            <div className="flex gap-1"><button onClick={() => setView("report")} className={`rounded-md px-3 py-1.5 text-sm ${view === "report" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>功能报告</button><button onClick={() => setView("logs")} className={`rounded-md px-3 py-1.5 text-sm ${view === "logs" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>完整日志</button></div>
+            <div className="flex flex-wrap gap-1">{([['report', '用户报告'], ['capabilities', '功能验证'], ['usage', '使用方式'], ['package', '部署文件'], ['technical', '技术详情'], ['logs', '完整日志']] as const).map(([key, label]) => <button key={key} onClick={() => setView(key)} className={`rounded-md px-3 py-1.5 text-sm ${view === key ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>{label}</button>)}</div>
             {isElectron() && report.workspace_path && <div className="flex flex-wrap gap-1"><button title="在文件管理器中打开完整测试包" onClick={() => void workspaceAction("open")} disabled={workspaceBusy !== null} className="rounded-md p-2 text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10"><FolderOpen className="h-4 w-4" /></button><button onClick={() => void workspaceAction("archive")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-500/10"><Archive className="h-4 w-4" />迁移完整测试包</button><button onClick={() => void workspaceAction("delete")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10"><Trash2 className="h-4 w-4" />删除本地文件</button></div>}
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-5">{view === "report" ? <MarkdownRenderer content={report.report_markdown} className="rounded-md bg-black/5 p-4 dark:bg-black/30" /> : <pre className="whitespace-pre-wrap break-words rounded-md bg-black/5 p-4 text-xs leading-6 text-gray-800 dark:bg-black/30 dark:text-gray-200">{report.logs_text || "未保存可用的 Agent 测试日志。"}</pre>}</div>
+          <div className="min-h-0 flex-1 overflow-auto p-5">
+            {view === "report" && <MarkdownRenderer content={report.report_markdown} className="rounded-md bg-black/5 p-4 dark:bg-black/30" />}
+            {view === "capabilities" && <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2">功能</th><th className="p-2">用户价值</th><th className="p-2">验证状态</th><th className="p-2">体验</th><th className="p-2">限制</th></tr></thead><tbody>{capabilities.map((item) => <tr key={String(item.id)} className="border-b border-black/5"><td className="p-2">{String(item.name ?? "—")}</td><td className="p-2">{String(item.userValue ?? "—")}</td><td className="p-2">{String(item.verificationStatus ?? "NOT_TESTED")}</td><td className="p-2">{String(item.experience ?? "—")}</td><td className="p-2">{Array.isArray(item.limitations) ? item.limitations.join("；") : "—"}</td></tr>)}</tbody></table>{!capabilities.length && <p className="p-4 text-sm text-gray-500">旧报告没有结构化功能验证数据。</p>}</div>}
+            {view === "usage" && <div className="space-y-2 text-sm">{workflows.length ? workflows.map((workflow) => <p key={workflow} className="rounded-md bg-black/5 p-3 dark:bg-black/30">{workflow}</p>) : <p className="text-gray-500">旧报告没有结构化使用方式数据。</p>}</div>}
+            {view === "package" && <div className="space-y-2 text-sm text-gray-700 dark:text-gray-200">{['AGENT_TASK.md', 'task.json', 'project-profile.json', 'initial-assessment.json', 'deployment-plan.json', 'test-plan.json', 'policy.json', 'environment.json', 'verification.yaml'].map((file) => <p key={file} className="rounded-md bg-black/5 p-2 dark:bg-black/30">{file}</p>)}</div>}
+            {view === "technical" && <div className="space-y-3"><p className="text-sm text-gray-500">技术报告、执行结果和原始证据保存在完整测试包的 technical/ 目录中。</p><pre className="whitespace-pre-wrap break-words rounded-md bg-black/5 p-4 text-xs leading-6 text-gray-800 dark:bg-black/30 dark:text-gray-200">{report.result_json || "未保存结构化执行结果。"}</pre></div>}
+            {view === "logs" && <pre className="whitespace-pre-wrap break-words rounded-md bg-black/5 p-4 text-xs leading-6 text-gray-800 dark:bg-black/30 dark:text-gray-200">{report.logs_text || "未保存可用的 Agent 测试日志。"}</pre>}
+          </div>
           <div className="border-t border-black/10 px-5 py-3 text-xs text-gray-500 dark:border-white/10">测试完成：{new Date(report.created_at).toLocaleString("zh-CN")} · 状态：{report.status}{report.workspace_path ? ` · 工作区：${report.workspace_path}` : ""}</div>
         </>}
         {error && <p className="mx-5 mb-4 rounded-md bg-blue-50 p-2 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-100">{error}</p>}

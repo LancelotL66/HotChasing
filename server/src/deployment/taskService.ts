@@ -54,6 +54,8 @@ export interface ProjectTestReport {
   workspace_path: string | null;
   created_at: string;
   updated_at: string;
+  user_report_json?: string | null;
+  report_status?: string | null;
 }
 
 function toTaskView(task: Record<string, unknown>): TaskView {
@@ -212,8 +214,15 @@ export function deleteTask(taskId: string): void {
 
 export function listProjectReports(projectId: string): ProjectTestReport[] {
   requireProject(projectId);
-  return getDb().prepare(`SELECT * FROM project_test_reports WHERE workspace_project_id=? ORDER BY created_at DESC`)
+  return getDb().prepare(`SELECT project_test_reports.*, local_test_reports.user_report_json, local_test_reports.report_status
+    FROM project_test_reports LEFT JOIN local_test_reports ON local_test_reports.task_id=project_test_reports.task_id
+    WHERE project_test_reports.workspace_project_id=? ORDER BY project_test_reports.created_at DESC`)
     .all(projectId) as ProjectTestReport[];
+}
+
+export function listTaskArtifacts(taskId: string): Array<Record<string, unknown>> {
+  requireTask(taskId);
+  return getDb().prepare('SELECT artifact_type,relative_path,size_bytes,checksum,created_at FROM local_test_artifacts WHERE task_id=? ORDER BY relative_path').all(taskId) as Array<Record<string, unknown>>;
 }
 
 export function retryTask(taskId: string): TaskView {
@@ -320,7 +329,7 @@ export function updateTaskStatus(taskId: string, status: string, stage: string |
 export function completeTask(
   taskId: string,
   runnerId: string,
-  input: { status: string; stage?: string; result?: Record<string, unknown>; containerNames?: string[]; ports?: number[]; workspacePath?: string; errorMessage?: string; reportMarkdown?: string; logsText?: string },
+  input: { status: string; stage?: string; result?: Record<string, unknown>; containerNames?: string[]; ports?: number[]; workspacePath?: string; errorMessage?: string; reportMarkdown?: string; logsText?: string; userReport?: Record<string, unknown>; executionResult?: Record<string, unknown>; artifactManifest?: Array<{ type: string; path: string; sizeBytes?: number; checksum?: string }> },
 ): TaskView {
   const task = requireTask(taskId);
   const db = getDb();
@@ -350,6 +359,18 @@ export function completeTask(
           logs_text=excluded.logs_text, workspace_path=excluded.workspace_path, updated_at=excluded.updated_at`)
         .run(randomUUID(), task.workspace_project_id, taskId, runnerId, input.status, input.reportMarkdown,
           input.result ? JSON.stringify(input.result) : null, input.logsText ?? null, input.workspacePath ?? null, now, now);
+    }
+    if (input.userReport) {
+      const verdict = input.userReport.verdict as Record<string, unknown> | undefined;
+      db.prepare(`INSERT INTO local_test_reports (id,task_id,workspace_project_id,report_status,deployment_value,confidence,user_report_json,user_report_markdown,claim_validation_json,generated_at,finalized_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(task_id) DO UPDATE SET report_status=excluded.report_status,deployment_value=excluded.deployment_value,confidence=excluded.confidence,user_report_json=excluded.user_report_json,user_report_markdown=excluded.user_report_markdown,claim_validation_json=excluded.claim_validation_json,generated_at=excluded.generated_at,finalized_at=excluded.finalized_at`)
+        .run(randomUUID(), taskId, task.workspace_project_id, 'READY', String(verdict?.deploymentValue ?? ''), String(verdict?.confidence ?? ''), JSON.stringify(input.userReport), input.reportMarkdown ?? null, JSON.stringify({ valid: true, issues: [] }), now, now);
+    }
+    if (input.artifactManifest) {
+      const insert = db.prepare(`INSERT INTO local_test_artifacts (id,task_id,artifact_type,relative_path,size_bytes,checksum,created_at)
+        VALUES (?,?,?,?,?,?,?) ON CONFLICT(task_id,relative_path) DO UPDATE SET artifact_type=excluded.artifact_type,size_bytes=excluded.size_bytes,checksum=excluded.checksum`);
+      for (const artifact of input.artifactManifest) insert.run(randomUUID(), taskId, artifact.type, artifact.path, artifact.sizeBytes ?? null, artifact.checksum ?? null, now);
     }
   })();
   logger.info('deployment.task', `Task ${taskId} completed with status ${input.status}`);

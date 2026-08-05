@@ -3,6 +3,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/connection.js';
 import { claimNextTask, claimTaskById, addEvent, completeTask, getTaskBundle, updateTaskStatus } from '../deployment/taskService.js';
+import { executionResultSchema, userReportSchema } from '../local-testing/schemas.js';
 
 const router = Router();
 
@@ -32,6 +33,9 @@ const completeSchema = z.object({
   errorMessage: z.string().max(5000).optional(),
   reportMarkdown: z.string().max(500_000).optional(),
   logsText: z.string().max(1_000_000).optional(),
+  userReport: z.record(z.string(), z.unknown()).optional(),
+  executionResult: z.record(z.string(), z.unknown()).optional(),
+  artifactManifest: z.array(z.object({ type: z.string(), path: z.string(), sizeBytes: z.number().int().nonnegative().optional(), checksum: z.string().optional() })).optional(),
 });
 
 function handleError(res: Response, error: unknown) {
@@ -188,6 +192,8 @@ router.post('/api/runners/:id/tasks/:taskId/logs', (req, res) => {
 router.post('/api/runners/:id/tasks/:taskId/complete', (req, res) => {
   const parsed = completeSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid completion', code: 'INVALID_COMPLETION' });
+  if (parsed.data.executionResult && !executionResultSchema.safeParse(parsed.data.executionResult).success) return res.status(400).json({ error: 'Invalid execution result schema', code: 'INVALID_EXECUTION_RESULT' });
+  if (parsed.data.userReport && !userReportSchema.safeParse(parsed.data.userReport).success) return res.status(400).json({ error: 'Invalid user report schema', code: 'INVALID_USER_REPORT' });
   try {
     const task = completeTask(req.params.taskId, req.params.id, parsed.data);
     res.json({ task });

@@ -79,6 +79,8 @@ export interface ProjectTestReport {
   workspace_path: string | null;
   created_at: string;
   updated_at: string;
+  user_report_json?: string | null;
+  report_status?: string | null;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -110,4 +112,5 @@ export const deploymentApi = {
   listDeployments: () => request<{ deployments: LocalDeployment[] }>('/local-deployments'),
   listRunners: () => request<{ runners: RunnerAgent[] }>('/runners'),
   listProjectReports: (projectId: string) => request<{ reports: ProjectTestReport[] }>(`/deployment/projects/${encodeURIComponent(projectId)}/reports`),
+  listTaskArtifacts: (taskId: string) => request<{ artifacts: Array<{ artifact_type: string; relative_path: string; size_bytes: number | null; created_at: string }> }>(`/deployment/tasks/${encodeURIComponent(taskId)}/artifacts`),
 };

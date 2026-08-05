@@ -1,21 +1,21 @@
 /**
  * 校验器：Runner 最终成功的唯一依据。
- * - 必须有 output/result.json 且 status === 'passed'；
- * - 必须有 Agent 生成的简要 report.md；
+ * - 必须有结构化 execution-result.json 和 USER_REPORT.md；
+ * - 旧 result.json/report.md 仅作为兼容输入；
  * - 仅在计划明确要求 HTTP 校验时探测端口。
  */
 export async function verifyTask({ result, bundle, outputDir }) {
   const details = [];
-  let passed = Boolean(result && result.status === 'passed');
-  details.push(`result.status=${result?.status ?? 'missing'}`);
+  let passed = Boolean(result && ['VERIFIED', 'PARTIALLY_VERIFIED'].includes(result.overallVerification?.status));
+  details.push(`overallVerification=${result?.overallVerification?.status ?? 'missing'}`);
 
-  const reportPath = path.join(outputDir, 'report.md');
+  const reportPath = path.join(outputDir, 'USER_REPORT.md');
   try {
     const report = fs.statSync(reportPath);
     if (report.size === 0) throw new Error('报告为空');
-    details.push('report.md 已生成');
+    details.push('USER_REPORT.md 已生成');
   } catch (error) {
-    details.push(`report.md 缺失或不可读：${error.message}`);
+    details.push(`USER_REPORT.md 缺失或不可读：${error.message}`);
     passed = false;
   }
 
