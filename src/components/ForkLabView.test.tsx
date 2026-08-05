@@ -81,7 +81,7 @@ describe('ForkLabView', () => {
   it('renders the direct-test workflow tabs', async () => {
     render(<ForkLabView />);
     expect(await screen.findByText('项目库')).toBeTruthy();
-    expect(screen.getByText('测试中')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: '测试中' }).length).toBeGreaterThan(0);
     expect(screen.getAllByText('已部署').length).toBeGreaterThan(0);
     expect(screen.getByText('失败与受限')).toBeTruthy();
   });

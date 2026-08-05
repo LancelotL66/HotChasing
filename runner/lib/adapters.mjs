@@ -45,7 +45,7 @@ export async function manualAdapter({ instructionsDir, outputDir, repoDir, log }
 /**
  * OpenCodeAdapter：以非交互方式调用 opencode CLI 处理部署任务。
  */
-export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log }) {
+export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log, onDecisionRequest }) {
   if (!config.agentModel) {
     throw new Error('OpenCode 未配置 AGENT_MODEL。请在“设置 -> 本地 Agent”填写 provider/model 后重启 Runner。');
   }
@@ -58,6 +58,25 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
     let child;
     let initialized = false;
     let initTimer;
+    let decisionRequest = '';
+    let decisionInFlight = false;
+    const decisionFile = path.join(outputDir, 'decision-request.json');
+    const decisionTimer = setInterval(async () => {
+      if (!onDecisionRequest || decisionInFlight || !fs.existsSync(decisionFile)) return;
+      try {
+        const raw = fs.readFileSync(decisionFile, 'utf8').trim();
+        if (!raw || raw === decisionRequest) return;
+        const request = JSON.parse(raw);
+        decisionRequest = raw;
+        decisionInFlight = true;
+        await onDecisionRequest(request);
+      } catch (error) {
+        log(`[opencode] 人工决策请求处理失败：${error.message}`);
+      } finally {
+        decisionInFlight = false;
+      }
+    }, 1000);
+    const cleanup = () => clearInterval(decisionTimer);
     try {
       child = pty.spawn(resolveCli('opencode'), ['run', ...(config.agentPureMode ? ['--pure'] : []), ...(config.agentModel ? ['--model', config.agentModel] : []), ...(config.agentAutoApprove ? ['--auto'] : []), '--print-logs', instruction], { cwd: repoDir, env: process.env, name: 'xterm-color', cols: 120, rows: 36 });
     } catch (error) {
@@ -66,11 +85,13 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
     }
     const timer = setTimeout(() => {
       child.kill();
+      cleanup();
       reject(new Error('opencode 运行超时'));
     }, config.agentTimeoutMs);
     initTimer = setTimeout(() => {
       if (initialized) return;
       child.kill();
+      cleanup();
       reject(new Error('OpenCode 初始化超过 60 秒，未创建会话。请检查项目配置或改用其他本地 Agent。'));
     }, 60_000);
     child.onData((data) => {
@@ -79,7 +100,7 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
       log(`[opencode] ${text.trimEnd()}`);
     });
     child.onExit(({ exitCode }) => {
-      clearTimeout(timer); clearTimeout(initTimer);
+      clearTimeout(timer); clearTimeout(initTimer); cleanup();
       const result = readResult(outputDir);
       if (!result) {
         reject(new Error(`opencode 退出（code=${exitCode}）但未生成 result.json`));

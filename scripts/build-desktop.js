@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 console.log('🚀 开始构建桌面应用...');
 
@@ -23,12 +26,12 @@ for (const file of required) {
 }
 console.log('⚡ 使用已提交的 electron/ 源码（含 MCP 与 preload）');
 
-// 3. 安装Electron依赖
-console.log('📥 安装Electron依赖...');
+// 3. Verify Electron dependencies. They are installed by the project package manager.
+console.log('🔎 检查Electron依赖...');
 try {
-  execSync('npm install --save-dev electron electron-builder', { stdio: 'inherit' });
+  execSync('npm ls electron electron-builder --depth=0', { stdio: 'inherit' });
 } catch (error) {
-  console.error('安装依赖失败:', error.message);
+  console.error('缺少 Electron 依赖。请先执行 npm install。', error.message);
   process.exit(1);
 }
 
@@ -36,8 +39,16 @@ try {
 console.log('🔨 构建桌面应用...');
 try {
   execSync('npx electron-builder', { stdio: 'inherit' });
+  const releaseDir = path.join(__dirname, '../release');
+  const installer = fs.readdirSync(releaseDir)
+    .filter((file) => file.endsWith('.exe') && !file.includes('unpacked'))
+    .sort()
+    .at(-1);
+  if (!installer) throw new Error('未找到 Windows 安装程序。');
+  const target = path.join(__dirname, '..', 'HotChasing-Setup.exe');
+  fs.copyFileSync(path.join(releaseDir, installer), target);
   console.log('✅ 桌面应用构建完成！');
-  console.log('📁 构建文件位于 release/ 目录');
+  console.log(`📁 安装程序：${target}`);
 } catch (error) {
   console.error('构建失败:', error.message);
   process.exit(1);

@@ -24,9 +24,12 @@ class BackendAdapter {
       const urls = [
         window.location.origin + '/api',
       ];
-      // Only probe localhost in development
+      // Browser development and packaged Electron both use a local backend.
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         urls.push('http://localhost:3000/api');
+      }
+      if (window.location.protocol === 'file:') {
+        urls.push('http://localhost:8080/api');
       }
 
       for (const baseUrl of urls) {

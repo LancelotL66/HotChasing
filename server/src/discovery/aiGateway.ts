@@ -405,7 +405,7 @@ function rulePlan(repo: Record<string, unknown>, assessment: Record<string, unkn
   return {
     schemaVersion: 1,
     strategy: method,
-    summary: '在隔离工作区按仓库真实文档和测试配置进行本地功能验证；Agent 可在安全策略内调整测试路径，并产出简要报告。',
+    summary: '在隔离工作区按仓库官方部署方式完成本地部署，再按测试配置进行多项功能验证；Agent 可在安全策略内调整测试路径，并产出简要报告。',
     testLevel: 'L2',
     estimatedResources: assessment.estimatedResources ?? { cpu: 2, memoryMb: 1024, diskMb: 2048 },
     requirements: assessment.requirements ?? { environmentVariables: [], credentials: [], database: false, networkDuringBuild: true, networkDuringRun: false },

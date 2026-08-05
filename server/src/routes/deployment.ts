@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { createTasks, listTasks, listTasksByStatuses, requireTask, cancelTask, deleteTask, retryTask, markManual, listEvents, listLocalDeployments, getTask, blockTasksWithOfflineRunners, listProjectReports } from '../deployment/taskService.js';
+import { createTasks, listTasks, listTasksByStatuses, requireTask, cancelTask, deleteTask, retryTask, markManual, listEvents, listLocalDeployments, getTask, blockTasksWithOfflineRunners, listProjectReports, addEvent } from '../deployment/taskService.js';
 import { listBatches, getBatch } from '../deployment/batchService.js';
 
 const router = Router();
@@ -15,6 +15,12 @@ const createBatchSchema = z.object({
   allowModification: z.boolean().optional(),
   allowCommit: z.boolean().optional(),
   allowPush: z.boolean().optional(),
+});
+
+const decisionSchema = z.object({
+  requestId: z.string().max(200).optional(),
+  choice: z.string().min(1).max(100),
+  note: z.string().max(3000).optional(),
 });
 
 function handleError(res: Response, error: unknown) {
@@ -66,7 +72,7 @@ router.get('/api/deployment/tasks', (req, res) => {
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
     let tasks;
     if (status === 'queued') tasks = listTasksByStatuses(['QUEUED']);
-    else if (status === 'running') tasks = listTasksByStatuses(['CLAIMED', 'PREPARING', 'CLONING', 'AGENT_PLANNING', 'PLAN_VALIDATING', 'BUILDING', 'STARTING', 'VERIFYING', 'REPAIRING', 'REPORTING']);
+    else if (status === 'running') tasks = listTasksByStatuses(['QUEUED', 'CLAIMED', 'PREPARING', 'CLONING', 'AGENT_PLANNING', 'PLAN_VALIDATING', 'BUILDING', 'STARTING', 'VERIFYING', 'REPAIRING', 'REPORTING']);
     else if (status === 'done') tasks = listTasksByStatuses(['COMPLETED']);
     else if (status === 'failed') tasks = listTasksByStatuses(['FAILED', 'BLOCKED', 'MANUAL_REQUIRED']);
     else tasks = listTasks();
@@ -120,6 +126,22 @@ router.post('/api/deployment/tasks/:id/retry', (req, res) => {
 router.post('/api/deployment/tasks/:id/manual', (req, res) => {
   try {
     res.json({ task: markManual(req.params.id) });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+// POST /api/deployment/tasks/:id/decision — an operator answers a Runner-requested decision.
+router.post('/api/deployment/tasks/:id/decision', (req, res) => {
+  const parsed = decisionSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid decision', code: 'INVALID_DECISION' });
+  try {
+    const task = requireTask(req.params.id);
+    if (!['CLAIMED', 'PREPARING', 'CLONING', 'AGENT_PLANNING', 'PLAN_VALIDATING', 'BUILDING', 'STARTING', 'VERIFYING', 'REPAIRING', 'REPORTING'].includes(task.status)) {
+      return res.status(409).json({ error: `Task cannot receive a decision from status ${task.status}`, code: 'TASK_NOT_ACTIVE' });
+    }
+    addEvent(task.id, task.runner_id, 'decision_response', 'WAITING_FOR_INPUT', JSON.stringify({ ...parsed.data, respondedAt: new Date().toISOString() }));
+    res.json({ ok: true });
   } catch (error) {
     handleError(res, error);
   }

@@ -142,6 +142,20 @@ describe('Deployment tasks and runners (M4/M5)', () => {
     expect(runner!.last_heartbeat_at).toBeTruthy();
   });
 
+  it('records an operator decision for an active task', async () => {
+    const app = createApp();
+    const created = await request(app).post('/api/deployment/batches').send({ projectIds: ['proj-1'] }).expect(201);
+    const reg = await request(app).post('/api/runners/register').send({ name: 'host-1' }).expect(201);
+    await request(app).post(`/api/runners/${reg.body.id}/claim-task/${created.body.tasks[0].id}`).expect(200);
+
+    await request(app).post(`/api/deployment/tasks/${created.body.tasks[0].id}/decision`)
+      .send({ choice: 'allow_once', note: '仅此次执行' }).expect(200);
+
+    const detail = await request(app).get(`/api/deployment/tasks/${created.body.tasks[0].id}`).expect(200);
+    expect(detail.body.events.at(-1)).toMatchObject({ event_type: 'decision_response', stage: 'WAITING_FOR_INPUT' });
+    expect(JSON.parse(detail.body.events.at(-1).message)).toMatchObject({ choice: 'allow_once', note: '仅此次执行' });
+  });
+
   it('records events and logs, then completes a task into a local deployment', async () => {
     const app = createApp();
     await request(app).post('/api/deployment/batches').send({ projectIds: ['proj-1'] }).expect(201);

@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, shell, globalShortcut, ipcMain, dialog } = req
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const pty = require('node-pty');
 const isDev = process.env.NODE_ENV === 'development';
 const { createMcpLocalServer } = require('./mcpLocalServer');
 
@@ -383,10 +384,27 @@ function isLocalBackendUrl(value) {
   }
 }
 
+function normalizeWorkspaceRoot(value) {
+  const trimmed = String(value ?? '').trim();
+  const unquoted = trimmed.replace(/^(?:"|')+|(?:"|')+$/g, '').trim();
+  return path.resolve(unquoted);
+}
+
+function resolveAgentExecutable(agent) {
+  const command = agent === 'claude-code' ? 'claude' : agent === 'codex' ? 'codex' : 'opencode';
+  if (process.platform !== 'win32' || command !== 'opencode') return command;
+  const npmBinary = path.join(process.env.APPDATA || '', 'npm', 'node_modules', 'opencode-ai', 'bin', 'opencode.exe');
+  return fs.existsSync(npmBinary) ? npmBinary : command;
+}
+
 function runNodeScript(script, env) {
+  const nodeExecutable = process.platform === 'win32'
+    ? path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe')
+    : process.execPath;
+  const executable = fs.existsSync(nodeExecutable) ? nodeExecutable : process.execPath;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script], {
-      env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' },
+    const child = spawn(executable, [script], {
+      env: { ...process.env, ...env, ...(executable === process.execPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}) },
       windowsHide: true,
     });
     let stderr = '';
@@ -394,6 +412,23 @@ function runNodeScript(script, env) {
     child.on('error', reject);
     child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `Runner 注册退出，code=${code}`)));
   });
+}
+
+async function waitForTaskClaim(backendUrl, taskIds) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    for (const taskId of taskIds) {
+      try {
+        const response = await fetch(`${backendUrl}/deployment/tasks/${encodeURIComponent(taskId)}?startupCheck=${Date.now()}`, { cache: 'no-store' });
+        const body = await response.json();
+        if (response.ok && body.task?.status && body.task.status !== 'QUEUED') return;
+      } catch {
+        // The Runner may still be registering while the local backend accepts connections.
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error('本机 Runner 未在 15 秒内领取测试任务。请检查本地 Agent 配置后重试。');
 }
 
 ipcMain.handle('runner:start', async (_event, input = {}) => {
@@ -409,10 +444,12 @@ ipcMain.handle('runner:start', async (_event, input = {}) => {
   }
   const stateDir = runnerStateDir();
   fs.mkdirSync(stateDir, { recursive: true });
-  const workspaceRoot = typeof input.workspaceRoot === 'string' && input.workspaceRoot.trim() ? input.workspaceRoot.trim() : path.join(stateDir, 'workspace');
+  const workspaceRoot = typeof input.workspaceRoot === 'string' && input.workspaceRoot.trim()
+    ? normalizeWorkspaceRoot(input.workspaceRoot)
+    : path.join(stateDir, 'workspace');
   const taskIds = Array.isArray(input.taskIds) ? input.taskIds.filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim()) : [];
   if (taskIds.length === 0) return { success: false, error: '请先在项目库中选择要测试的项目。' };
-  runnerWorkspaceRoot = path.resolve(workspaceRoot);
+  runnerWorkspaceRoot = workspaceRoot;
   fs.writeFileSync(runnerWorkspaceConfigPath(), JSON.stringify({ workspaceRoot: runnerWorkspaceRoot }, null, 2));
   const env = {
     BACKEND_URL: backendUrl,
@@ -427,12 +464,27 @@ ipcMain.handle('runner:start', async (_event, input = {}) => {
   };
   try {
     await runNodeScript(registerFile, env);
-    runnerProcess = spawn(process.execPath, [runnerFile], {
-      env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' },
-      windowsHide: false,
+    const nodeExecutable = process.platform === 'win32'
+      ? path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe')
+      : process.execPath;
+    const executable = fs.existsSync(nodeExecutable) ? nodeExecutable : process.execPath;
+    runnerProcess = spawn(executable, [runnerFile], {
+      env: { ...process.env, ...env, ...(executable === process.execPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}) },
+      windowsHide: true,
+      // Runner uploads Agent output to the backend itself. Leaving stdout unread
+      // here can fill the Windows pipe and stop its heartbeat during verbose tests.
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
-    runnerProcess.on('exit', () => { runnerProcess = null; });
-    runnerProcess.on('error', () => { runnerProcess = null; });
+    runnerProcess.stderr.on('data', (chunk) => console.error(`[runner] ${String(chunk).trimEnd()}`));
+    runnerProcess.on('exit', (code, signal) => {
+      console.error(`[runner] exited code=${code} signal=${signal ?? 'none'}`);
+      runnerProcess = null;
+    });
+    runnerProcess.on('error', (error) => {
+      console.error(`[runner] failed to start: ${error.message}`);
+      runnerProcess = null;
+    });
+    await waitForTaskClaim(backendUrl, taskIds);
     return { success: true };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -490,9 +542,25 @@ ipcMain.handle('runner:test-model', async (_event, input = {}) => {
       ? ['-p', ...(model ? ['--model', model] : []), prompt]
       : ['exec', '--full-auto', ...(model ? ['--model', model] : []), prompt];
   return new Promise((resolve) => {
-    const child = spawn(agent === 'claude-code' ? 'claude' : agent === 'codex' ? 'codex' : 'opencode', args, { windowsHide: true });
     let output = '';
     const append = (chunk) => { output = (output + String(chunk)).slice(-4000); };
+    if (agent === 'opencode') {
+      let child;
+      try {
+        child = pty.spawn(resolveAgentExecutable(agent), args, { cwd: app.getPath('home'), env: process.env, name: 'xterm-color', cols: 120, rows: 36 });
+      } catch (error) {
+        resolve({ success: false, error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: '模型测试超时', output }); }, 60_000);
+      child.onData(append);
+      child.onExit(({ exitCode }) => {
+        clearTimeout(timer);
+        resolve({ success: exitCode === 0 && output.includes('HOTCHASING_MODEL_OK'), error: exitCode === 0 ? undefined : `CLI 退出 code=${exitCode}`, output });
+      });
+      return;
+    }
+    const child = spawn(resolveAgentExecutable(agent), args, { windowsHide: true });
     child.stdout.on('data', append);
     child.stderr.on('data', append);
     const timer = setTimeout(() => { child.kill('SIGTERM'); resolve({ success: false, error: '模型测试超时', output }); }, 60_000);

@@ -7,6 +7,10 @@ directories:
   output: release
   buildResources: build
 
+# node-pty ships a Windows prebuild for the bundled Node ABI; do not require
+# a local Visual Studio C++ toolchain merely to package the desktop app.
+npmRebuild: false
+
 files:
   - dist/**/*
   - electron/**/*
@@ -16,6 +20,14 @@ files:
 extraResources:
   - from: runner
     to: runner
+    filter:
+      - "**/*"
+      - "!workspace{,/**}"
+      - "!runner.json"
+  # The Runner is executed by the system Node runtime from resources/runner,
+  # so its native terminal dependency must be resolvable from that directory.
+  - from: node_modules/node-pty
+    to: runner/node_modules/node-pty
 
 extraMetadata:
   main: electron/main.js
@@ -26,7 +38,6 @@ win:
     - target: nsis
       arch:
         - x64
-        - ia32
   icon: dist/vite.svg
   
 nsis:

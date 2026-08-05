@@ -12,13 +12,17 @@ export interface LocalAgentConfig {
 const KEY = 'hotchasing:local-agent-config';
 const fallback: LocalAgentConfig = { agent: 'opencode', runnerName: '', workspaceRoot: '', model: '', autoApprove: false, pureMode: false };
 
+function normalizeWorkspaceRoot(value: string): string {
+  return value.trim().replace(/^(?:"|')+|(?:"|')+$/g, '').trim();
+}
+
 export function getLocalAgentConfig(): LocalAgentConfig {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<LocalAgentConfig>;
     return {
       agent: ['opencode', 'claude-code', 'codex', 'manual'].includes(value.agent ?? '') ? value.agent as LocalAgentType : fallback.agent,
       runnerName: typeof value.runnerName === 'string' ? value.runnerName : '',
-      workspaceRoot: typeof value.workspaceRoot === 'string' ? value.workspaceRoot : '',
+      workspaceRoot: typeof value.workspaceRoot === 'string' ? normalizeWorkspaceRoot(value.workspaceRoot) : '',
       model: typeof value.model === 'string' ? value.model : '',
       autoApprove: value.autoApprove === true,
       pureMode: value.pureMode === true,
@@ -29,5 +33,5 @@ export function getLocalAgentConfig(): LocalAgentConfig {
 }
 
 export function saveLocalAgentConfig(config: LocalAgentConfig): void {
-  localStorage.setItem(KEY, JSON.stringify(config));
+  localStorage.setItem(KEY, JSON.stringify({ ...config, workspaceRoot: normalizeWorkspaceRoot(config.workspaceRoot) }));
 }

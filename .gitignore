@@ -26,6 +26,7 @@ dist-ssr
 *.sw?
 .env
 release
+HotChasing-Setup.exe
 # electron/ sources are committed (main, preload, MCP). Do not ignore the whole dir.
 
 # Backend server data

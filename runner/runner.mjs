@@ -14,6 +14,8 @@ let heartbeatInFlight = false;
 let heartbeatTimer = null;
 let shuttingDown = false;
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function sendHeartbeat() {
   if (heartbeatInFlight) return;
   heartbeatInFlight = true;
@@ -85,7 +87,38 @@ async function processTask(bundle) {
       void api(`/runners/${config.runnerId}/tasks/${taskId}/logs`, { method: 'POST', body: { lines: [message.slice(0, 5000)] } })
         .catch((error) => logWithTask(`日志上报失败：${error.message}`));
     };
-    const { result } = await adapter({ instructionsDir, outputDir, repoDir, log: taskLog });
+    const { result } = await adapter({
+      instructionsDir,
+      inputDir,
+      outputDir,
+      repoDir,
+      log: taskLog,
+      onDecisionRequest: async (request) => {
+        const requestId = String(request?.requestId ?? `${taskId}-${Date.now()}`);
+        const question = typeof request?.question === 'string' ? request.question : 'Agent 需要人工决策后才能继续。';
+        const options = Array.isArray(request?.options) ? request.options : [];
+        await api(`/runners/${config.runnerId}/tasks/${taskId}/events`, {
+          method: 'POST',
+          body: { eventType: 'stage', stage: 'WAITING_FOR_INPUT', message: JSON.stringify({ requestId, question, options, requestedAt: new Date().toISOString() }) },
+        });
+        logWithTask(`等待人工决策：${question}`);
+        const deadline = Date.now() + config.agentTimeoutMs;
+        while (Date.now() < deadline) {
+          const detail = await api(`/deployment/tasks/${taskId}`);
+          const response = [...(detail.events ?? [])].reverse().find((event) => {
+            if (event.event_type !== 'decision_response') return false;
+            try { return JSON.parse(event.message).requestId === requestId; } catch { return false; }
+          });
+          if (response?.message) {
+            fs.writeFileSync(path.join(inputDir, 'decision-response.json'), response.message, 'utf8');
+            await api(`/runners/${config.runnerId}/tasks/${taskId}/events`, { method: 'POST', body: { eventType: 'stage', stage: 'AGENT_PLANNING', message: '已收到人工决策，Agent 继续执行' } });
+            return;
+          }
+          await wait(2000);
+        }
+        throw new Error('等待人工决策超时');
+      },
+    });
     const reportPath = path.join(outputDir, 'report.md');
     const reportMarkdown = fs.existsSync(reportPath) ? fs.readFileSync(reportPath, 'utf8') : undefined;
 

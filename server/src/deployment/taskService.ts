@@ -110,7 +110,8 @@ export function createTasks(projectIds: string[], options: CreateTasksOptions = 
         (id,batch_id,workspace_project_id,agent_id,status,max_repair_iterations,allow_modification,allow_commit,allow_push,created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?)`)
         .run(randomUUID(), batchId, projectId, options.agentId ?? 'manual', 'QUEUED', options.maxRepairIterations ?? 3, options.allowModification === false ? 0 : 1, options.allowCommit === false ? 0 : 1, options.allowPush === true ? 1 : 0, now);
-      db.prepare("UPDATE fork_workspace_projects SET project_status='QUEUED' WHERE id=?").run(projectId);
+      // The Runner claims the task asynchronously, but a user-initiated batch is already testing.
+      db.prepare("UPDATE fork_workspace_projects SET project_status='TESTING' WHERE id=?").run(projectId);
     }
   });
   batchTx();
@@ -358,12 +359,15 @@ export function getTaskBundle(taskId: string): Record<string, unknown> {
   const planJson = (() => {
     try { return planRow?.plan_json ? JSON.parse(String(planRow.plan_json)) : null; } catch { return null; }
   })();
+  const priorReports = getDb().prepare(`SELECT task_id,status,report_markdown,updated_at FROM project_test_reports
+    WHERE workspace_project_id=? ORDER BY updated_at DESC LIMIT 3`).all(task.workspace_project_id) as Array<Record<string, unknown>>;
   return {
     task,
     project,
     repo: project.repo,
     assessment: project.assessment,
     plan: planJson,
+    priorReports,
     verification: {
       projectType: 'local-exploratory',
       checks: [

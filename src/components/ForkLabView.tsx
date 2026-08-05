@@ -21,6 +21,7 @@ import { backend } from "../services/backendAdapter";
 import { isElectron } from "../services/electronProxy";
 import { getLocalAgentConfig } from "../services/localAgentConfig";
 import { ReadmeModal } from "./ReadmeModal";
+import MarkdownRenderer from "./MarkdownRenderer";
 import type { Repository } from "../types";
 import { useForkLabStore } from "../store/useForkLabStore";
 import {
@@ -49,7 +50,7 @@ const STATUS_FILTERS = [
   "分析完成",
   "计划未生成",
   "计划已生成",
-  "测试队列中",
+  "测试中",
   "已部署",
   "需要人工处理",
 ];
@@ -107,7 +108,7 @@ function projectStatus(project: ForkLabProject): string[] {
   if (project.assessment) statuses.push("分析完成");
   if (!project.plan) statuses.push("计划未生成");
   if (project.plan) statuses.push("计划已生成");
-  if (["QUEUED", "TESTING"].includes(project.project_status)) statuses.push("测试队列中");
+  if (["QUEUED", "TESTING"].includes(project.project_status)) statuses.push("测试中");
   if (project.project_status === "DEPLOYED") statuses.push("已部署");
   if (project.project_status === "FAILED") statuses.push("需要人工处理");
   return statuses;
@@ -119,11 +120,33 @@ function statusBadge(label: string) {
     分析完成: "bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300",
     计划未生成: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
     计划已生成: "bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300",
-    测试队列中: "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300",
+    测试中: "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300",
     已部署: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300",
     需要人工处理: "bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300",
   };
   return colorMap[label] ?? "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200";
+}
+
+type HumanDecisionRequest = {
+  requestId?: string;
+  question: string;
+  options: Array<{ id: string; label: string; description?: string }>;
+};
+
+function pendingDecision(events: DeploymentTask['events']): HumanDecisionRequest | null {
+  if (!events) return null;
+  const requestIndex = [...events].map((event) => event.stage === 'WAITING_FOR_INPUT' && event.event_type === 'stage').lastIndexOf(true);
+  if (requestIndex < 0 || events.slice(requestIndex + 1).some((event) => event.event_type === 'decision_response')) return null;
+  try {
+    const parsed = JSON.parse(events[requestIndex].message) as Partial<HumanDecisionRequest>;
+    if (typeof parsed.question !== 'string') return null;
+    const options = Array.isArray(parsed.options)
+      ? parsed.options.filter((option): option is { id: string; label: string; description?: string } => typeof option?.id === 'string' && typeof option?.label === 'string')
+      : [];
+    return { requestId: typeof parsed.requestId === 'string' ? parsed.requestId : undefined, question: parsed.question, options };
+  } catch {
+    return null;
+  }
 }
 
 function PlanEditorDialog({
@@ -288,7 +311,7 @@ function AssessmentPanel({ project }: { project: ForkLabProject }) {
   );
 }
 
-function ReportDialog({ project, onClose }: { project: ForkLabProject; onClose: () => void }) {
+function ReportDialog({ projectId, projectName, onClose }: { projectId: string; projectName: string; onClose: () => void }) {
   const [reports, setReports] = useState<ProjectTestReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -296,11 +319,11 @@ function ReportDialog({ project, onClose }: { project: ForkLabProject; onClose: 
   const [workspaceBusy, setWorkspaceBusy] = useState<"open" | "archive" | "delete" | null>(null);
 
   useEffect(() => {
-    void deploymentApi.listProjectReports(project.id)
+    void deploymentApi.listProjectReports(projectId)
       .then((result) => setReports(result.reports))
       .catch((err) => setError(err instanceof Error ? err.message : "加载报告失败"))
       .finally(() => setLoading(false));
-  }, [project.id]);
+  }, [projectId]);
 
   const report = reports[0];
   const workspaceAction = async (action: "open" | "archive" | "delete") => {
@@ -328,15 +351,15 @@ function ReportDialog({ project, onClose }: { project: ForkLabProject; onClose: 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-lg border border-black/10 bg-white shadow-dialog dark:border-white/10 dark:bg-panel-dark" onClick={(event) => event.stopPropagation()}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 px-5 py-4 dark:border-white/10">
-          <div><h3 className="text-base font-semibold">{project.upstream_full_name} 的测试报告</h3><p className="mt-1 text-xs text-gray-500">报告随项目保存；清理本地工作区不会删除报告与日志。</p></div>
+          <div><h3 className="text-base font-semibold">{projectName} 的测试报告</h3><p className="mt-1 text-xs text-gray-500">报告随项目保存；清理本地工作区不会删除报告与日志。</p></div>
           <button onClick={onClose} className="rounded-md p-1 hover:bg-gray-100 dark:hover:bg-white/10" aria-label="关闭"><X className="h-5 w-5" /></button>
         </div>
         {loading ? <div className="p-8 text-center text-sm text-gray-500">加载报告中…</div> : !report ? <div className="p-8 text-center text-sm text-gray-500">该项目尚无已保存的测试报告。</div> : <>
           <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
             <div className="flex gap-1"><button onClick={() => setView("report")} className={`rounded-md px-3 py-1.5 text-sm ${view === "report" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>中文报告</button><button onClick={() => setView("logs")} className={`rounded-md px-3 py-1.5 text-sm ${view === "logs" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-white/10"}`}>测试日志</button></div>
-            {isElectron() && report.workspace_path && <div className="flex flex-wrap gap-1"><button title="在文件管理器中打开测试工作区" onClick={() => void workspaceAction("open")} disabled={workspaceBusy !== null} className="rounded-md p-2 text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10"><FolderOpen className="h-4 w-4" /></button><button title="迁移全部测试文件到其他目录" onClick={() => void workspaceAction("archive")} disabled={workspaceBusy !== null} className="rounded-md p-2 text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-500/10"><Archive className="h-4 w-4" /></button><button title="删除全部本地测试文件，保留报告和日志" onClick={() => void workspaceAction("delete")} disabled={workspaceBusy !== null} className="rounded-md p-2 text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></button></div>}
+            {isElectron() && report.workspace_path && <div className="flex flex-wrap gap-1"><button title="在文件管理器中打开测试工作区" onClick={() => void workspaceAction("open")} disabled={workspaceBusy !== null} className="rounded-md p-2 text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10"><FolderOpen className="h-4 w-4" /></button><button onClick={() => void workspaceAction("archive")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-500/10"><Archive className="h-4 w-4" />转移位置</button><button onClick={() => void workspaceAction("delete")} disabled={workspaceBusy !== null} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10"><Trash2 className="h-4 w-4" />删除本地文件</button></div>}
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-5"><pre className="whitespace-pre-wrap break-words rounded-md bg-black/5 p-4 text-xs leading-6 text-gray-800 dark:bg-black/30 dark:text-gray-200">{view === "report" ? report.report_markdown : (report.logs_text || "未保存可用的 Agent 测试日志。")}</pre></div>
+          <div className="min-h-0 flex-1 overflow-auto p-5">{view === "report" ? <MarkdownRenderer content={report.report_markdown} className="rounded-md bg-black/5 p-4 dark:bg-black/30" /> : <pre className="whitespace-pre-wrap break-words rounded-md bg-black/5 p-4 text-xs leading-6 text-gray-800 dark:bg-black/30 dark:text-gray-200">{report.logs_text || "未保存可用的 Agent 测试日志。"}</pre>}</div>
           <div className="border-t border-black/10 px-5 py-3 text-xs text-gray-500 dark:border-white/10">测试完成：{new Date(report.created_at).toLocaleString("zh-CN")} · 状态：{report.status}{report.workspace_path ? ` · 工作区：${report.workspace_path}` : ""}</div>
         </>}
         {error && <p className="mx-5 mb-4 rounded-md bg-blue-50 p-2 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-100">{error}</p>}
@@ -548,7 +571,7 @@ function ProjectCard({
           }}
         />
       )}
-      {showReport && <ReportDialog project={project} onClose={() => setShowReport(false)} />}
+      {showReport && <ReportDialog projectId={project.id} projectName={project.upstream_full_name} onClose={() => setShowReport(false)} />}
       <ReadmeModal isOpen={showReadme} onClose={() => setShowReadme(false)} repository={showReadme ? toReadmeRepository(project) : null} />
     </article>
   );
@@ -566,6 +589,39 @@ function EmptyTab({ icon, title, description }: { icon: React.ReactNode; title: 
   );
 }
 
+function DecisionDialog({ task, request, onClose, onSubmit }: { task: DeploymentTask; request: HumanDecisionRequest; onClose: () => void; onSubmit: (choice: string, note: string) => Promise<void> }) {
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const options = request.options.length > 0 ? request.options : [
+    { id: 'allow_once', label: '允许一次', description: '按 Agent 建议继续当前操作。' },
+    { id: 'skip', label: '跳过', description: '跳过当前操作并在报告中记录。' },
+    { id: 'stop', label: '终止', description: '停止当前测试并记录原因。' },
+  ];
+  const submit = async (choice: string) => {
+    setSubmitting(true);
+    try {
+      await onSubmit(choice, note);
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-lg border border-black/10 bg-white p-5 shadow-dialog dark:border-white/10 dark:bg-panel-dark" onClick={(event) => event.stopPropagation()}>
+        <h3 className="text-base font-semibold">需要人工确认</h3>
+        <p className="mt-1 text-xs text-gray-500">{task.project?.upstream_full_name ?? task.workspace_project_id}</p>
+        <p className="mt-4 whitespace-pre-wrap text-sm leading-6">{request.question}</p>
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="可选说明" className="mt-4 w-full rounded-md border border-black/10 bg-white p-2 text-sm dark:border-white/10 dark:bg-black/20" />
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button onClick={onClose} disabled={submitting} className="rounded-md px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/10">稍后处理</button>
+          {options.map((option) => <button key={option.id} title={option.description} onClick={() => void submit(option.id)} disabled={submitting} className="rounded-md border border-blue-600 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:text-blue-300 dark:hover:bg-blue-500/10">{submitting ? "提交中…" : option.label}</button>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ForkLabView() {
   const [activeTab, setActiveTab] = useState<TabId>("library");
   const [projects, setProjects] = useState<ForkLabProject[]>([]);
@@ -579,6 +635,8 @@ export function ForkLabView() {
   const [failedTasks, setFailedTasks] = useState<DeploymentTask[]>([]);
   const [deployments, setDeployments] = useState<LocalDeployment[]>([]);
   const [tabsLoading, setTabsLoading] = useState(false);
+  const [decisionTask, setDecisionTask] = useState<{ task: DeploymentTask; request: HumanDecisionRequest } | null>(null);
+  const [reportProject, setReportProject] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -646,7 +704,7 @@ export function ForkLabView() {
   }, []);
 
   useEffect(() => {
-    if (activeTab !== "library") void loadTabData();
+    void loadTabData();
   }, [activeTab, loadTabData]);
 
   useEffect(() => {
@@ -675,6 +733,15 @@ export function ForkLabView() {
     });
   };
 
+  const clearDeployment = async (deployment: LocalDeployment) => {
+    if (!deployment.task_id) {
+      setMessage("此部署记录没有关联测试任务，无法清除。");
+      return;
+    }
+    if (!window.confirm(`删除 ${deployment.project?.upstream_full_name ?? "此项目"} 的部署记录？本地工作区和已保存的测试报告不会删除。`)) return;
+    await taskAction(() => deploymentApi.deleteTask(deployment.task_id!));
+  };
+
   const startSelectedTests = async () => {
     if (selectedIds.size === 0) return;
     if (!isElectron() || !window.electronAPI?.runner) {
@@ -701,6 +768,8 @@ export function ForkLabView() {
       if (!started.success) throw new Error(started.error ?? "启动本机测试失败");
       setMessage(`已开始测试 ${result.tasks.length} 个项目。本机 Agent 会只执行本次选择的项目，完成后自动退出。`);
       setSelectedIds(new Set());
+      setActiveTab("running");
+      await loadTabData();
       await load();
     } catch (err) {
       await Promise.all(taskIds.map((taskId) => deploymentApi.deleteTask(taskId).catch(() => undefined)));
@@ -783,16 +852,15 @@ export function ForkLabView() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
+            aria-label={tab.label}
             className={`rounded-lg px-4 py-2 text-sm font-medium ${
               activeTab === tab.id
                 ? "bg-blue-600 text-white"
                 : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
             }`}
-          >
+            >
             {tab.label}
-            {tab.id === "library" && projects.length > 0 && (
-              <span className="ml-1 text-xs opacity-80">({projects.length})</span>
-            )}
+            <span className="ml-1 text-xs opacity-80">({tab.id === "library" ? projects.length : tab.id === "running" ? runningTasks.length : tab.id === "deployed" ? deployments.length : failedTasks.length})</span>
           </button>
         ))}
       </div>
@@ -875,12 +943,12 @@ export function ForkLabView() {
       {activeTab === "running" && (
         <div className="space-y-3">
           <p className="text-sm text-gray-500">
-            正在执行的部署任务（每 4 秒刷新，共 {runningTasks.length} 项）。
+            正在测试的项目（每 4 秒刷新，共 {runningTasks.length} 项）。
           </p>
           {tabsLoading ? (
             <div className="flex items-center justify-center py-10 text-gray-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> 加载中…</div>
           ) : runningTasks.length === 0 ? (
-            <EmptyTab icon={<Loader2 className="h-6 w-6" />} title="暂无执行中的任务" description="本地 Runner 领取任务后，进度会实时显示在这里。" />
+            <EmptyTab icon={<Loader2 className="h-6 w-6" />} title="暂无测试中的项目" description="批量开始测试后，项目进度会实时显示在这里。" />
           ) : (
             <div className="space-y-2">
               {runningTasks.map((task) => (
@@ -889,7 +957,7 @@ export function ForkLabView() {
                     <div>
                       <p className="text-sm font-semibold">{task.project?.upstream_full_name ?? task.workspace_project_id}</p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Runner：{task.runner_id?.slice(0, 8) ?? "—"} · 阶段：{task.current_stage ?? task.status}
+                         状态：{task.status === "QUEUED" ? "正在启动本机 Agent" : "测试中"} · 阶段：{task.current_stage ?? task.status}
                       </p>
                     </div>
                     <button
@@ -900,6 +968,14 @@ export function ForkLabView() {
                     </button>
                     <button onClick={() => void clearTask(task, true)} className="rounded-lg px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">停止并清除</button>
                   </div>
+                  {pendingDecision(task.events) && (
+                    <button
+                      onClick={() => setDecisionTask({ task, request: pendingDecision(task.events)! })}
+                      className="mt-3 rounded-lg border border-amber-600 px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-500/10"
+                    >
+                      需要人工确认
+                    </button>
+                  )}
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
                     <div className="h-full rounded-full bg-indigo-600" style={{ width: `${Math.max(2, Math.round(task.progress ?? 0))}%` }} />
                   </div>
@@ -935,6 +1011,16 @@ export function ForkLabView() {
                     状态：{deployment.status} · 端口：{(() => { try { return JSON.parse(deployment.ports_json ?? "[]").join(", ") || "—"; } catch { return "—"; } })()}
                   </p>
                   {deployment.workspace_path && <p className="mt-1 text-xs text-gray-400">工作区：{deployment.workspace_path}</p>}
+                  <div className="mt-3 flex justify-end">
+                    <button onClick={() => setReportProject({ id: deployment.workspace_project_id, name: deployment.project?.upstream_full_name ?? deployment.workspace_project_id })} className="mr-2 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10"><FileText className="h-4 w-4" />查看报告</button>
+                    <button
+                      onClick={() => void clearDeployment(deployment)}
+                      title="删除部署记录和关联任务，保留项目库与测试报告"
+                      className="inline-flex items-center gap-1 rounded-lg border border-red-600 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                    >
+                      <Trash2 className="h-4 w-4" /> 删除部署记录
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -986,6 +1072,19 @@ export function ForkLabView() {
           )}
         </div>
       )}
+
+      {decisionTask && (
+        <DecisionDialog
+          task={decisionTask.task}
+          request={decisionTask.request}
+          onClose={() => setDecisionTask(null)}
+          onSubmit={async (choice, note) => {
+            await deploymentApi.submitDecision(decisionTask.task.id, decisionTask.request.requestId, choice, note || undefined);
+            await loadTabData();
+          }}
+        />
+      )}
+      {reportProject && <ReportDialog projectId={reportProject.id} projectName={reportProject.name} onClose={() => setReportProject(null)} />}
 
     </section>
   );

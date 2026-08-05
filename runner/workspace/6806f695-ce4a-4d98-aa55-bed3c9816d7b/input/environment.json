@@ -1,6 +1,0 @@
-{
-  "cpu": 2,
-  "memoryMb": 1024,
-  "diskMb": 1024,
-  "gpuRequired": false
-}

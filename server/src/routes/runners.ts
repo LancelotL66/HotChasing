@@ -50,6 +50,7 @@ const stageProgress: Record<string, { status: string; progress: number }> = {
   PREPARING: { status: 'PREPARING', progress: 5 },
   CLONING: { status: 'CLONING', progress: 15 },
   AGENT_PLANNING: { status: 'AGENT_PLANNING', progress: 25 },
+  WAITING_FOR_INPUT: { status: 'AGENT_PLANNING', progress: 25 },
   PLAN_VALIDATING: { status: 'PLAN_VALIDATING', progress: 35 },
   BUILDING: { status: 'BUILDING', progress: 55 },
   STARTING: { status: 'STARTING', progress: 70 },

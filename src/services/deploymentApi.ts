@@ -106,6 +106,7 @@ export const deploymentApi = {
   deleteTask: (id: string) => request<{ deleted: boolean }>(`/deployment/tasks/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
   retryTask: (id: string) => request<{ task: DeploymentTask }>(`/deployment/tasks/${encodeURIComponent(id)}/retry`, { method: 'POST', body: '{}' }),
   markManual: (id: string) => request<{ task: DeploymentTask }>(`/deployment/tasks/${encodeURIComponent(id)}/manual`, { method: 'POST', body: '{}' }),
+  submitDecision: (id: string, requestId: string | undefined, choice: string, note?: string) => request<{ ok: true }>(`/deployment/tasks/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify({ requestId, choice, note }) }),
   listDeployments: () => request<{ deployments: LocalDeployment[] }>('/local-deployments'),
   listRunners: () => request<{ runners: RunnerAgent[] }>('/runners'),
   listProjectReports: (projectId: string) => request<{ reports: ProjectTestReport[] }>(`/deployment/projects/${encodeURIComponent(projectId)}/reports`),
