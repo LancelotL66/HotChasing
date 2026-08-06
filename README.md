@@ -1,111 +1,121 @@
 # HotChasing
 
-HotChasing 是一个本地部署的开源项目热点追踪平台。它从 GitHub 采集候选项目和趋势数据，按统一分类体系生成中文日报与经典热门榜单，帮助团队持续发现值得关注的工具和技术方向。
+HotChasing 是一个本地优先的开源项目发现与研究工作台。它把 GitHub 项目采集、热点日报、历史项目更新、AI 分类与摘要、趋势榜单、README 阅读和本地部署验证放在同一个工作流里。
 
-## 功能
+HotChasing 适合需要持续追踪开源生态的个人开发者、研究者和技术团队：先发现项目，再理解项目，最后验证项目是否值得部署和使用。
 
-- **热点日报**：采集近期热门项目，按热度评分生成每日精选；支持历史归档、日期和分类筛选。
-- **实时趋势**：展示 GitHub Trending 的今日、本周和本月项目。
-- **Top100**：综合采用度、长期活跃度、生态、社区、工程成熟度和当前热度，生成经典热门项目榜单。
-- **统一分类**：日报与 Top100 共用 AI 优先、规则兜底的分类流程，保证分类口径一致。
-- **中文摘要与语义重排**：可使用配置的 AI 服务生成项目摘要，并对已加载结果进行语义重排。
-- **本地数据持久化**：Express 和 SQLite 运行在 Docker 容器内，数据保存在本机 Docker 卷中。
+## 核心能力
 
-## 架构
+- **热点日报**：按频道采集近期项目，生成可回溯的每日精选和历史归档。
+- **历史项目更新**：日报完成后后台轮换检查已有项目；只有代码提交时间变化时才读取 README，README 未变化时只同步仓库元数据。
+- **趋势与 Top100**：结合短期热度、长期采用度、生态、社区和工程成熟度观察项目变化。
+- **AI 分类与摘要**：AI 优先、规则兜底；摘要、标签和分类结果保存在本地数据库。
+- **语义搜索**：对当前已加载的日报或项目集合进行意图扩展和相关性检索。
+- **README 阅读**：支持目录、双语显示、字号调整、翻译和项目详情阅读。
+- **Fork 实验室**：收集项目、同步上游、生成部署分析和本地测试流程。
+- **本地测试报告**：保存用户报告、功能验证、部署文件、日志和测试证据。
+- **本地优先存储**：SQLite 数据库和加密配置由 Docker 数据卷持久化保存。
 
-```text
-Browser
-  -> http://localhost:8080
-  -> Nginx frontend container
-  -> /api/* reverse proxy
-  -> Express + SQLite backend container
-  -> GitHub API / GitHub Trending RSS / configured AI provider
-```
-
-## 快速启动
+## 运行方式
 
 ### 前置条件
 
 - Windows 10/11
-- 已安装并启动 Docker Desktop
+- Docker Desktop
+- GitHub Personal Access Token
+- 可选：OpenAI、Claude、DeepSeek、Ollama 或其他 OpenAI-compatible AI 服务
 
-### 一键启动
+### Docker 启动
 
-双击根目录的 [Start-HotChasing.cmd](Start-HotChasing.cmd)。启动器会：
-
-1. 检查 Docker Desktop 是否可用。
-2. 启动 `frontend` 和 `backend` 两个 Docker Compose 服务。
-3. 等待健康检查通过后自动打开 `http://localhost:8080`。
-
-首次启动或容器未创建时，Docker Compose 会按 `docker-compose.yml` 创建容器；已有容器时只会启动已有服务，不会清空数据。
-
-也可以在项目根目录手动执行：
+双击根目录的 `Start-HotChasing.cmd`，或手动执行：
 
 ```powershell
 docker compose up -d
 ```
 
-## 更新代码后重建
+启动后访问：`http://localhost:8080`
 
-源代码更新不会自动进入已有容器。重新构建并启动：
+首次启动会创建 `hotchasing_backend-data` 数据卷。停止或重新创建容器不会删除数据；除非明确要清空全部数据，不要执行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Start-HotChasing.ps1 -Rebuild
+docker compose down -v
 ```
 
-或执行：
+### 更新代码后重建
 
 ```powershell
 docker compose up --build -d
 ```
 
-Docker Hub 网络不可用时，构建可能因基础镜像拉取失败而中断；网络恢复后再次运行重建命令即可。
+Docker 基础镜像拉取失败时，等待网络恢复后重新执行即可。
+
+## 桌面客户端
+
+开发模式：
+
+```powershell
+npm install
+npm run electron:dev
+```
+
+生成 Windows 安装包：
+
+```powershell
+npm run build:desktop
+```
+
+安装包输出为根目录的 `HotChasing-Setup.exe`。桌面客户端默认加载本地构建的前端，并通过 `http://localhost:8080/api` 访问 Docker backend。
 
 ## 配置与数据
 
-- 在应用的设置页面配置 GitHub Token 和 AI 服务。不要把密钥写入源码、README 或提交到仓库。
-- 后端 SQLite 数据库和加密密钥位于 Docker 卷 `backend-data`，容器内路径为 `/app/data`。
-- `docker compose down` 会删除容器但保留数据卷；再次 `up -d` 后数据仍会恢复。
-- **不要执行 `docker compose down -v`**，除非确认要删除全部本地数据和加密密钥。
+在应用的“设置”中配置 GitHub Token、AI 服务、代理、WebDAV 和向量搜索。密钥由后端加密保存，不要提交到 Git、README、镜像或日志。
 
-## 运维命令
+数据库位于 Docker 卷：
+
+```text
+卷名：hotchasing_backend-data
+容器路径：/app/data
+```
+
+常用运维命令：
 
 ```powershell
-# 查看服务状态
 docker compose ps
-
-# 检查应用健康状态
 Invoke-RestMethod http://localhost:8080/api/health
-
-# 查看日志
-docker compose logs -f frontend
 docker compose logs -f backend
-
-# 停止服务，保留数据
 docker compose stop
-
-# 重新启动已停止服务
 docker compose start
 ```
 
-健康检查正常时会返回：
+## 系统结构
 
-```json
-{"status":"ok"}
+```text
+HotChasing Web / Electron
+        |
+        | HTTP /api
+        v
+Nginx frontend container
+        |
+        v
+Express backend + SQLite volume
+        |
+        +-- GitHub API / Trending RSS
+        +-- Configured AI provider
+        +-- Fork Lab / local testing services
 ```
 
-## 开源与使用声明
+主要目录：
 
-- 本项目依据 [MIT License](LICENSE) 发布。使用、修改和再发布时，请保留适用的版权与许可证声明。
-- 本项目包含基于 [GithubStarsManager](https://github.com/AmintaCCCP/GithubStarsManager) 衍生的代码；来源与归属说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-- 项目展示的数据来自 GitHub API、GitHub Trending RSS 和用户自行配置的 AI 服务。项目与 GitHub、相关开源项目及 AI 服务提供商不存在官方隶属、赞助或背书关系。
-- 使用者应自行遵守 GitHub、AI 服务提供商及其他数据来源的服务条款、API 使用限制和适用法律，并对自己的 Token、API Key、代理配置及使用行为负责。
-- 请勿将 Token、API Key、数据库、加密密钥或任何个人数据提交到公开仓库。AI 生成的分类、摘要和排序仅供信息整理与研究参考，应自行核验。
-- 本项目按许可证所述以“现状”提供，不对数据完整性、实时性、可用性或任何使用结果作出保证。
+```text
+src/          React 前端、状态管理和服务适配器
+server/       Express API、SQLite、日报和 Fork 实验室
+electron/     Electron 主进程和桌面桥接
+runner/       本地 Agent 测试 Runner
+cloudflare-worker/ 向量搜索 Worker
+scripts/      桌面构建和维护脚本
+```
 
 ## 开发与验证
-
-前端和后端分别位于项目根目录与 `server/`。修改后可运行：
 
 ```powershell
 # 前端
@@ -118,4 +128,18 @@ npm run build
 npm test
 ```
 
-生产运行以 Docker Compose 为准。提交或交付前应完成受影响模块的构建与测试。
+## 项目边界与许可
+
+HotChasing 是独立维护和持续改造的产品项目，当前代码、界面、日报流程、Fork 实验室、本地测试系统和文档由本项目维护。
+
+项目仍包含来自第三方项目的衍生代码和依赖。第三方许可、版权和归属声明必须保留，详见 [LICENSE](LICENSE) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。重新包装产品名称不等于取消上游许可义务。
+
+HotChasing 不隶属于 GitHub，也不代表 GitHub、AI 服务商或被收录项目。项目数据受 GitHub API、RSS、AI 服务和网络环境影响；AI 分类、摘要、评分和部署建议应由使用者自行核验。
+
+## 发布前检查
+
+1. 确认 README、应用标题、Electron 产品名和 Docker 镜像名均为 HotChasing。
+2. 确认第三方许可证和归属文件仍然存在。
+3. 确认没有提交 Token、API Key、数据库或 Docker 卷内容。
+4. 执行前端和后端构建及受影响模块测试。
+5. 发布桌面包前先备份 `hotchasing_backend-data` 数据卷。

@@ -94,5 +94,5 @@ linux:
 # 发布配置
 publish:
   provider: github
-  owner: your-username
-  repo: your-repo-name
+  owner: your-github-org
+  repo: hotchasing

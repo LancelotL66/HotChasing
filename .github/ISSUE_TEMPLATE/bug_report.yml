@@ -1,12 +1,12 @@
 name: Bug Report
-description: 报告 GithubStarsManager 中可复现的 Bug
+description: 报告 HotChasing 中可复现的 Bug
 title: "[Bug] "
 labels: ["BUG"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢你帮助改进 GithubStarsManager！提交前请先搜索是否已有相同或类似 Issue。
+        感谢你帮助改进 HotChasing！提交前请先搜索是否已有相同或类似 Issue。
 
   - type: dropdown
     id: platform

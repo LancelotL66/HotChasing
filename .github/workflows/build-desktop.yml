@@ -235,8 +235,8 @@ jobs:
         packageJson.scripts.dist = 'electron-builder';
         
         packageJson.build = {
-          appId: 'com.github-stars-manager.app',
-          productName: 'GitHub Stars Manager',
+            appId: 'com.hotchasing.app',
+            productName: 'HotChasing',
           directories: {
             output: 'release',
             buildResources: 'build'
@@ -289,7 +289,7 @@ jobs:
             allowToChangeInstallationDirectory: true,
             createDesktopShortcut: true,
             createStartMenuShortcut: true,
-            shortcutName: 'GitHub Stars Manager'
+            shortcutName: 'HotChasing'
           };
         } else if ('${{ matrix.os }}' === 'macos-latest') {
           packageJson.build.mac = {
@@ -305,7 +305,7 @@ jobs:
 
           };
           packageJson.build.dmg = {
-            title: 'GitHub Stars Manager',
+            title: 'HotChasing',
             icon: 'build/icon.png'
           };
         } else {

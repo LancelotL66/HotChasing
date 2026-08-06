@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/github-stars-manager-frontend
+  IMAGE_NAME: ${{ github.repository_owner }}/hotchasing-frontend
 
 jobs:
   build-and-push:

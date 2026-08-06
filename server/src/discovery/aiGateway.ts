@@ -59,7 +59,7 @@ function normalizeDeploymentDifficulty(value: unknown): unknown {
 export async function generateHotSummary(repo: Record<string, unknown>): Promise<{ summary: string; source: 'ai' | 'rule'; model: string | null; sourceHash: string }> {
   const sourceHash = hotSummarySourceHash(repo);
   const db = getDb();
-  // Reuse the existing application setting used by Stars Manager's AIService.
+  // Reuse the existing application setting used by HotChasing's AI service.
   // is_active belongs to the persisted config record but does not represent the
   // frontend's selected activeAIConfig reliably after local-first edits.
   const activeSetting = db.prepare('SELECT value FROM settings WHERE key = ?').get('activeAIConfig') as { value?: string } | undefined;

@@ -113,15 +113,15 @@ export const LoginScreen: React.FC = () => {
           <div className="flex items-center justify-center w-16 h-16 bg-white dark:bg-panel-dark rounded-2xl mx-auto mb-4 shadow-lg ring-1 ring-blue-100 dark:ring-gray-700 overflow-hidden">
             <img
               src="./icon.png"
-              alt="GitHub Stars Manager"
+              alt="HotChasing"
               className="w-full h-full object-cover"
             />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-text-primary mb-2">
-            GitHub Stars Manager
+            HotChasing
           </h1>
           <p className="text-gray-700 dark:text-text-tertiary text-lg">
-            {t('AI驱动的仓库管理工具', 'AI-powered repository management')}
+            {t('开源项目热点追踪与研究工作台', 'Open-source project discovery and research workspace')}
           </p>
         </div>
 

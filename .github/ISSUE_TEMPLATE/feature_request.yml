@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        感谢你为 GithubStarsManager 提出新功能建议！
+        感谢你为 HotChasing 提出新功能建议！
 
         请尽量描述真实使用场景、当前遇到的限制，以及你希望功能如何帮助解决问题。清晰的场景会更容易评估优先级和实现方式。
 

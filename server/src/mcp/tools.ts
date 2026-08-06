@@ -22,7 +22,7 @@ export function registerMcpTools(server: McpServer): void {
     'gsm_status',
     {
       description:
-        'Get GithubStarsManager MCP status: repo count, vector availability, and version.',
+        'Get HotChasing MCP status: repo count, vector availability, and version.',
     },
     async () => {
       const repos = loadAllRepositories();
@@ -111,7 +111,7 @@ export function registerMcpTools(server: McpServer): void {
   server.registerTool(
     'gsm_list_categories',
     {
-      description: 'List custom categories stored in GithubStarsManager.',
+      description: 'List custom categories stored in HotChasing.',
     },
     async () => textResult({ categories: listCategories() })
   );

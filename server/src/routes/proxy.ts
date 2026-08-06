@@ -95,7 +95,7 @@ router.post('/api/proxy/github/*', async (req, res) => {
       'Authorization': `Bearer ${token}`,
       'Accept': body.headers?.Accept || 'application/vnd.github.v3+json',
       'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'GithubStarsManager-Backend',
+      'User-Agent': 'HotChasing-Backend',
     };
     const contentType = body.headers?.['Content-Type'] || body.headers?.['content-type'];
     if (contentType) {
@@ -166,7 +166,7 @@ router.post('/api/proxy/github-raw', async (req, res) => {
     const headers: Record<string, string> = {
       ...safeForwardHeaders,
       'Authorization': `Bearer ${token}`,
-      'User-Agent': 'GithubStarsManager-Backend',
+      'User-Agent': 'HotChasing-Backend',
       'Accept': 'application/vnd.github.v3+json',
     };
 
@@ -401,7 +401,7 @@ router.post('/api/proxy/github/search/repositories', async (req, res) => {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/vnd.github.v3+json',
       'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'GithubStarsManager-Backend',
+      'User-Agent': 'HotChasing-Backend',
     };
 
     const proxyConfig = getProxyConfig();
@@ -441,7 +441,7 @@ router.post('/api/proxy/github/search/users', async (req, res) => {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/vnd.github.v3+json',
       'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'GithubStarsManager-Backend',
+      'User-Agent': 'HotChasing-Backend',
     };
 
     const proxyConfig = getProxyConfig();

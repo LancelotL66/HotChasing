@@ -30,8 +30,8 @@ Available image tags (both images share the same tagging scheme):
 - `sha-abc1234` — specific commit builds
 
 Published images:
-- Backend: `ghcr.io/amintacccp/github-stars-manager-server`
-- Frontend: `ghcr.io/amintacccp/github-stars-manager-frontend`
+- Backend: `ghcr.io/your-github-org/hotchasing-server`
+- Frontend: `ghcr.io/your-github-org/hotchasing-frontend`
 
 To pin specific versions in `docker-compose.yml`, set `BACKEND_IMAGE_TAG` and/or
 `FRONTEND_IMAGE_TAG` in your `.env` file:
@@ -51,7 +51,7 @@ docker run -d \
   --name github-stars-backend \
   -v github-stars-data:/app/data \
   -p 3000:3000 \
-  ghcr.io/amintacccp/github-stars-manager-server:latest
+  ghcr.io/your-github-org/hotchasing-server:latest
 
 # With custom API secret and encryption key
 docker run -d \
@@ -60,7 +60,7 @@ docker run -d \
   -p 3000:3000 \
   -e API_SECRET="your-secret-here" \
   -e ENCRYPTION_KEY="your-encryption-key" \
-  ghcr.io/amintacccp/github-stars-manager-server:latest
+  ghcr.io/your-github-org/hotchasing-server:latest
 
 # Map to a different host port (e.g. 8080)
 docker run -d \
@@ -68,7 +68,7 @@ docker run -d \
   -v github-stars-data:/app/data \
   -p 8080:3000 \
   -e API_SECRET="your-secret-here" \
-  ghcr.io/amintacccp/github-stars-manager-server:latest
+  ghcr.io/your-github-org/hotchasing-server:latest
 ```
 
 ### Environment Variables
@@ -134,13 +134,13 @@ The pre-built frontend image is published to GHCR — no local build required:
 
 ```bash
 # Pull the published image
-docker pull ghcr.io/amintacccp/github-stars-manager-frontend:latest
+ docker pull ghcr.io/your-github-org/hotchasing-frontend:latest
 
 # Run the container (point /api proxy at your backend)
 docker run -d -p 8080:80 \
   -e BACKEND_HOST=host.docker.internal:3000 \
-  --name github-stars-manager \
-  ghcr.io/amintacccp/github-stars-manager-frontend:latest
+  --name hotchasing \
+  ghcr.io/your-github-org/hotchasing-frontend:latest
 
 # The application will be available at http://localhost:8080
 ```

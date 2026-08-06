@@ -57,7 +57,7 @@ https://github-stars-vectorize.<your-subdomain>.workers.dev
 
 ### 5. 在 App 中配置
 
-在 GitHub Stars Manager 的 **设置 → 向量搜索** 中：
+在 HotChasing 的 **设置 → 向量搜索** 中：
 - **Worker 地址**: 填入上一步的 URL
 - **认证 Token**: 填入你设置的 AUTH_TOKEN 值
 
