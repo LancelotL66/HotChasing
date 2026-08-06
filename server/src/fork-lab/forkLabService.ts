@@ -27,7 +27,7 @@ export function toProjectView(project: ForkLabProjectRow): ProjectView {
   const db = getDb();
   const repo = db.prepare('SELECT * FROM repositories WHERE id=?').get(project.repo_id) as Record<string, unknown> | undefined;
   const assessment = db.prepare('SELECT * FROM deployment_assessments WHERE repo_id=?').get(project.repo_id) as Record<string, unknown> | undefined;
-  const plan = db.prepare('SELECT id,workspace_project_id,plan_json,plan_source,plan_version,locked,generated_at,updated_at FROM deployment_plans WHERE workspace_project_id=?').get(project.id) as Record<string, unknown> | undefined;
+  const plan = db.prepare('SELECT id,workspace_project_id,plan_json,plan_source,plan_version,locked,source_hash,generated_at,updated_at FROM deployment_plans WHERE workspace_project_id=?').get(project.id) as Record<string, unknown> | undefined;
   const active = db.prepare("SELECT id FROM deployment_tasks WHERE workspace_project_id=? AND status IN ('QUEUED','CLAIMED','PREPARING','CLONING','AGENT_PLANNING','PLAN_VALIDATING','BUILDING','STARTING','VERIFYING','REPAIRING','REPORTING') LIMIT 1").get(project.id);
   return { ...project, repo: repo ?? null, assessment: assessment ?? null, plan: plan ?? null, has_active_task: Boolean(active) };
 }

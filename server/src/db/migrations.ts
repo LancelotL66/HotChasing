@@ -305,6 +305,17 @@ add('enrichment_readme', 'TEXT');
       CREATE INDEX IF NOT EXISTS idx_local_test_artifacts_task ON local_test_artifacts(task_id);
     `);
   },
+  13: (db) => {
+    const repoColumns = db.prepare('PRAGMA table_info(repositories)').all() as Array<{ name: string }>;
+    if (!repoColumns.some((column) => column.name === 'repository_checked_at')) {
+      db.exec('ALTER TABLE repositories ADD COLUMN repository_checked_at TEXT');
+    }
+    const planColumns = db.prepare('PRAGMA table_info(deployment_plans)').all() as Array<{ name: string }>;
+    if (!planColumns.some((column) => column.name === 'source_hash')) {
+      db.exec('ALTER TABLE deployment_plans ADD COLUMN source_hash TEXT');
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_repositories_checked_at ON repositories(repository_checked_at)');
+  },
 };
 
 export function runMigrations(db: Database.Database): void {

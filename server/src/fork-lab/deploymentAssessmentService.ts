@@ -3,6 +3,7 @@ import { getDb } from '../db/connection.js';
 import { fetchRepositoryEnrichment } from '../discovery/classificationService.js';
 import { generateDeploymentAssessment } from '../discovery/aiGateway.js';
 import { requireProject, setProjectStatus, type ProjectView } from './forkLabService.js';
+import { refreshRepositoryFromGitHub } from '../discovery/projectRefreshService.js';
 
 export function deploymentAssessmentSourceHash(repo: Record<string, unknown>, readme = '', architecture = ''): string {
   return createHash('sha256').update(JSON.stringify(['deployment-assessment-v1', repo.full_name, repo.description, repo.topics, repo.language, repo.license, repo.updated_at, readme, architecture])).digest('hex');
@@ -17,7 +18,7 @@ export interface AssessmentResult {
 export async function ensureAssessment(projectId: string, force = false): Promise<AssessmentResult> {
   const project = requireProject(projectId);
   const db = getDb();
-  const repo = db.prepare('SELECT * FROM repositories WHERE id=?').get(project.repo_id) as Record<string, unknown> | undefined;
+  const repo = await refreshRepositoryFromGitHub(project.repo_id) ?? db.prepare('SELECT * FROM repositories WHERE id=?').get(project.repo_id) as Record<string, unknown> | undefined;
   if (!repo) {
     const error = new Error('Repository not found');
     (error as Error & { code?: string }).code = 'REPOSITORY_NOT_FOUND';

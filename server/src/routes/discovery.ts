@@ -46,7 +46,14 @@ router.post('/api/discovery/run', async (req, res) => {
     if (!responses.length) throw new Error('All GitHub discovery channels failed');
     const candidates = responses.flat(); const unique = new Map<number, { repo: Record<string, unknown>; channel: string; ranking: number }>();
     candidates.forEach((candidate) => { const repoId = Number(candidate.repo.id); if (!unique.has(repoId)) unique.set(repoId, candidate); });
-    const items = [...unique.values()]; const now = new Date().toISOString();
+    const discoveredItems = [...unique.values()];
+    // Daily discovery is additive. Existing repositories already have their metadata,
+    // snapshots, and enrichment, so skip them instead of refreshing the same projects.
+    const existingRepositoryIds = new Set(
+      (db.prepare('SELECT id FROM repositories').all() as Array<{ id: number }>).map((repository) => repository.id),
+    );
+    const items = discoveredItems.filter(({ repo }) => !existingRepositoryIds.has(Number(repo.id)));
+    const now = new Date().toISOString();
     const upsert = db.prepare(`INSERT INTO repositories (id,name,full_name,description,html_url,stargazers_count,forks_count,language,created_at,updated_at,pushed_at,owner_login,owner_avatar_url,topics)
       VALUES (@id,@name,@full_name,@description,@html_url,@stargazers_count,@forks_count,@language,@created_at,@updated_at,@pushed_at,@owner_login,@owner_avatar_url,@topics)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name,full_name=excluded.full_name,description=excluded.description,html_url=excluded.html_url,stargazers_count=excluded.stargazers_count,forks_count=excluded.forks_count,language=excluded.language,updated_at=excluded.updated_at,pushed_at=excluded.pushed_at,topics=excluded.topics`);
@@ -56,9 +63,9 @@ router.post('/api/discovery/run', async (req, res) => {
       upsert.run({ id: repo.id, name: repo.name, full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stargazers_count: repo.stargazers_count ?? 0, forks_count: repo.forks_count ?? 0, language: repo.language, created_at: repo.created_at, updated_at: repo.updated_at, pushed_at: repo.pushed_at, owner_login: owner?.login ?? '', owner_avatar_url: owner?.avatar_url ?? '', topics: JSON.stringify(repo.topics ?? []) });
       snapshot.run(repo.id, now, repo.stargazers_count ?? 0, repo.forks_count ?? 0, repo.open_issues_count ?? 0, ranking, channel);
     })); tx();
-    db.prepare('UPDATE discovery_runs SET finished_at=?,status=?,items_found=?,items_saved=? WHERE id=?').run(new Date().toISOString(), 'completed', items.length, items.length, id);
+    db.prepare('UPDATE discovery_runs SET finished_at=?,status=?,items_found=?,items_saved=? WHERE id=?').run(new Date().toISOString(), 'completed', discoveredItems.length, items.length, id);
     logger.info('discovery.run.finish', 'Discovery run completed', { runId: id, status: 'completed' });
-    res.status(201).json({ id, channels: channels.map((item) => item.channel), itemsFound: items.length, itemsSaved: items.length });
+    res.status(201).json({ id, channels: channels.map((item) => item.channel), itemsFound: discoveredItems.length, itemsSaved: items.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'; db.prepare('UPDATE discovery_runs SET finished_at=?,status=?,error_message=? WHERE id=?').run(new Date().toISOString(), 'failed', message, id);
     logger.errorFromError('discovery.run.fail', 'Discovery run failed', error, { runId: id }); res.status(502).json({ error: 'Discovery failed', code: 'DISCOVERY_FAILED' });
@@ -67,7 +74,9 @@ router.post('/api/discovery/run', async (req, res) => {
 
 router.post('/api/discovery/backfill-daily', async (req, res) => {
   const parsed = backfillSchema.safeParse(req.body ?? {}); if (!parsed.success) return res.status(400).json({ error: 'Invalid backfill request' });
-  const db = getDb(); const upsert = db.prepare(`INSERT INTO repositories (id,name,full_name,description,html_url,stargazers_count,forks_count,language,created_at,updated_at,pushed_at,owner_login,owner_avatar_url,topics)
+  const db = getDb(); const existingRepositoryIds = new Set(
+    (db.prepare('SELECT id FROM repositories').all() as Array<{ id: number }>).map((repository) => repository.id),
+  ); const upsert = db.prepare(`INSERT INTO repositories (id,name,full_name,description,html_url,stargazers_count,forks_count,language,created_at,updated_at,pushed_at,owner_login,owner_avatar_url,topics)
     VALUES (@id,@name,@full_name,@description,@html_url,@stargazers_count,@forks_count,@language,@created_at,@updated_at,@pushed_at,@owner_login,@owner_avatar_url,@topics)
     ON CONFLICT(id) DO UPDATE SET description=excluded.description,html_url=excluded.html_url,stargazers_count=excluded.stargazers_count,forks_count=excluded.forks_count,language=excluded.language,updated_at=excluded.updated_at,pushed_at=excluded.pushed_at,topics=excluded.topics`);
   const snapshot = db.prepare('INSERT OR IGNORE INTO metric_snapshots (repo_id,captured_at,stars,forks,open_issues,ranking,source_channel) VALUES (?,?,?,?,?,?,?)'); const dates: string[] = [];
@@ -80,7 +89,9 @@ router.post('/api/discovery/backfill-daily', async (req, res) => {
     const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(`created:${date} stars:>=5`)}&sort=stars&order=desc&per_page=30`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'HotChasing' } });
     if (!response.ok) return;
     const payload = await response.json() as { items?: Array<Record<string, unknown>> };
-    const save = db.transaction(() => (payload.items ?? []).forEach((repo, index) => { const owner = repo.owner as Record<string, unknown> | undefined; upsert.run({ id: repo.id, name: repo.name, full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stargazers_count: repo.stargazers_count ?? 0, forks_count: repo.forks_count ?? 0, language: repo.language, created_at: repo.created_at, updated_at: repo.updated_at, pushed_at: repo.pushed_at, owner_login: owner?.login ?? '', owner_avatar_url: owner?.avatar_url ?? '', topics: JSON.stringify(repo.topics ?? []) }); snapshot.run(repo.id, capturedAt, repo.stargazers_count ?? 0, repo.forks_count ?? 0, repo.open_issues_count ?? 0, index + 1, 'historical_daily'); })); save();
+    const items = (payload.items ?? []).filter((repo) => !existingRepositoryIds.has(Number(repo.id)));
+    const save = db.transaction(() => items.forEach((repo, index) => { const owner = repo.owner as Record<string, unknown> | undefined; upsert.run({ id: repo.id, name: repo.name, full_name: repo.full_name, description: repo.description, html_url: repo.html_url, stargazers_count: repo.stargazers_count ?? 0, forks_count: repo.forks_count ?? 0, language: repo.language, created_at: repo.created_at, updated_at: repo.updated_at, pushed_at: repo.pushed_at, owner_login: owner?.login ?? '', owner_avatar_url: owner?.avatar_url ?? '', topics: JSON.stringify(repo.topics ?? []) }); snapshot.run(repo.id, capturedAt, repo.stargazers_count ?? 0, repo.forks_count ?? 0, repo.open_issues_count ?? 0, index + 1, 'historical_daily'); })); save();
+    items.forEach((repo) => existingRepositoryIds.add(Number(repo.id)));
   };
   try {
     if (parsed.data.date) {

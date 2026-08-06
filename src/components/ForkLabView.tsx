@@ -15,6 +15,7 @@ import {
   FileText,
   FolderOpen,
   Play,
+  Star,
   X,
 } from "lucide-react";
 import { backend } from "../services/backendAdapter";
@@ -24,6 +25,8 @@ import { ReadmeModal } from "./ReadmeModal";
 import MarkdownRenderer from "./MarkdownRenderer";
 import type { Repository } from "../types";
 import { useForkLabStore } from "../store/useForkLabStore";
+import { createGitHubApiService } from "../services/githubApiFactory";
+import { useAppStore } from "../store/useAppStore";
 import {
   forkLabApi,
   type ForkLabProject,
@@ -392,18 +395,19 @@ function ProjectCard({
   selected,
   onToggleSelect,
   onRefresh,
+  onOpenReadme,
 }: {
   project: ForkLabProject;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   onRefresh: (id: string) => void;
+  onOpenReadme: (project: ForkLabProject) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState<null | "assessment" | "plan" | "regenerate-plan" | "remove">(null);
   const [error, setError] = useState("");
   const [showPlanEditor, setShowPlanEditor] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [showReadme, setShowReadme] = useState(false);
   const repo = project.repo ?? {};
   const topics = jsonList(String(repo.topics ?? ""));
   const plan = parsePlanJson(project);
@@ -458,7 +462,13 @@ function ProjectCard({
   };
 
   return (
-    <article className="rounded-xl border border-black/10 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
+    <article
+      className="cursor-pointer rounded-xl border border-black/10 bg-white p-5 shadow-sm transition-[border-color,transform] hover:-translate-y-0.5 hover:border-brand-indigo/60 dark:border-white/10 dark:bg-white/5"
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest("button, a, input, summary")) return;
+        onOpenReadme(project);
+      }}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -520,19 +530,11 @@ function ProjectCard({
           {busy === "assessment" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           {project.assessment ? "重新分析" : "生成部署分析"}
         </button>
-        <button onClick={() => setShowReport(true)} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10">
-          <FileText className="h-4 w-4" /> 查看测试报告
-        </button>
-        <button onClick={() => setShowReadme(true)} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/10">
-          <FileText className="h-4 w-4" /> README
-        </button>
         <button
-          onClick={() => (project.plan ? setShowPlanEditor(true) : run("plan"))}
-          disabled={busy !== null}
-          className="inline-flex items-center gap-1 rounded-lg border border-amber-600 px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:hover:bg-amber-500/10"
+          onClick={() => setExpanded(!expanded)}
+          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
         >
-          {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
-          {project.plan ? "查看/编辑流程" : "生成建议流程"}
+          <Rocket className="h-4 w-4" /> {expanded ? "收起分析" : "查看部署分析"}
         </button>
         {project.plan && (
           <button
@@ -546,25 +548,34 @@ function ProjectCard({
           </button>
         )}
         <button
-          onClick={() => setExpanded(!expanded)}
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
+          onClick={() => (project.plan ? setShowPlanEditor(true) : run("plan"))}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-1 rounded-lg border border-amber-600 px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:hover:bg-amber-500/10"
         >
-          <Rocket className="h-4 w-4" /> {expanded ? "收起分析" : "查看部署分析"}
+          {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+          {project.plan ? "查看/编辑流程" : "生成建议流程"}
+        </button>
+        <button onClick={() => setShowReport(true)} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10">
+          <FileText className="h-4 w-4" /> 查看测试报告
         </button>
         <a
           href={`https://github.com/${project.upstream_full_name}`}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10"
+          className="hc-icon-button"
+          title="打开 GitHub 上游仓库"
+          aria-label="打开 GitHub 上游仓库"
         >
-          <Github className="h-4 w-4" /> 上游
+          <Github className="h-4 w-4" />
         </a>
         <button
           onClick={remove}
           disabled={busy !== null}
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10"
+          className="hc-icon-button text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-500/10"
+          title="从实验室移除"
+          aria-label="从实验室移除"
         >
-          {busy === "remove" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} 从实验室移除
+          {busy === "remove" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
         </button>
       </div>
 
@@ -591,7 +602,6 @@ function ProjectCard({
         />
       )}
       {showReport && <ReportDialog projectId={project.id} projectName={project.upstream_full_name} onClose={() => setShowReport(false)} />}
-      <ReadmeModal isOpen={showReadme} onClose={() => setShowReadme(false)} repository={showReadme ? toReadmeRepository(project) : null} />
     </article>
   );
 }
@@ -652,6 +662,9 @@ export function ForkLabView() {
   const [deployments, setDeployments] = useState<LocalDeployment[]>([]);
   const [tabsLoading, setTabsLoading] = useState(false);
   const [reportProject, setReportProject] = useState<{ id: string; name: string } | null>(null);
+  const [readmeProject, setReadmeProject] = useState<ForkLabProject | null>(null);
+  const [starringDeploymentId, setStarringDeploymentId] = useState<string | null>(null);
+  const githubToken = useAppStore((state) => state.githubToken);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -690,6 +703,15 @@ export function ForkLabView() {
       void load();
     }
   }, [load]);
+  const starDeployment = async (deployment: LocalDeployment, project: ForkLabProject | undefined) => {
+    if (!githubToken || !project) return setMessage("请先登录 GitHub 后再加星。");
+    const [owner, name] = project.upstream_full_name.split("/");
+    if (!owner || !name) return;
+    setStarringDeploymentId(deployment.id);
+    try { await createGitHubApiService(githubToken).starRepository(owner, name); setMessage(`${project.upstream_full_name} 已加入 GitHub 星标仓库。`); }
+    catch { setMessage("加星失败，请检查 GitHub Token 权限与网络。"); }
+    finally { setStarringDeploymentId(null); }
+  };
 
   const loadTabData = useCallback(async (background = false) => {
     if (!background) setTabsLoading(true);
@@ -983,6 +1005,7 @@ export function ForkLabView() {
                   selected={selectedIds.has(project.id)}
                   onToggleSelect={toggleSelect}
                   onRefresh={(id) => void refreshProject(id)}
+                  onOpenReadme={setReadmeProject}
                 />
               ))}
             </div>
@@ -1054,14 +1077,21 @@ export function ForkLabView() {
             <EmptyTab icon={<CheckCircle2 className="h-6 w-6" />} title="暂无已部署项目" description="任务校验通过后，已部署项目会出现在这里。" />
           ) : (
             <div className="space-y-2">
-              {deployments.map((deployment) => (
-                <div key={deployment.id} className="rounded-lg border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-white/5">
-                  <p className="text-sm font-semibold">{deployment.project?.upstream_full_name ?? deployment.workspace_project_id}</p>
+              {deployments.map((deployment) => {
+                const project = projects.find((item) => item.id === deployment.workspace_project_id);
+                const repo = project?.repo ?? {};
+                const tags = project ? [repo.primary_category, ...jsonList(String(repo.function_tags ?? "")).slice(0, 4), ...jsonList(String(repo.platform_tags ?? "")).slice(0, 2)].filter(Boolean) : [];
+                return <article key={deployment.id} onClick={(event) => { if (!(event.target as HTMLElement).closest("button, a")) project && setReadmeProject(project); }} className="cursor-pointer rounded-lg border border-black/[0.08] bg-white p-4 transition-[border-color,transform] hover:-translate-y-0.5 hover:border-brand-indigo/60 dark:border-white/[0.08] dark:bg-white/[0.035]">
+                  {typeof repo.hot_summary_zh === "string" && repo.hot_summary_zh && <div className="hc-notice mb-3 p-3 text-sm leading-6">{repo.hot_summary_zh}</div>}
+                  <p className="font-semibold">{deployment.project?.upstream_full_name ?? project?.upstream_full_name ?? deployment.workspace_project_id}</p>
+                  {project && <p className="mt-1 text-xs text-gray-500">{String(repo.language ?? "未知语言")} · Stars {Number(repo.stargazers_count ?? 0).toLocaleString()} · 最近更新 {repo.updated_at ? new Date(String(repo.updated_at)).toLocaleDateString("zh-CN") : "—"}</p>}
                   <p className="mt-1 text-xs text-gray-500">
                     状态：{deployment.status} · 端口：{(() => { try { return JSON.parse(deployment.ports_json ?? "[]").join(", ") || "—"; } catch { return "—"; } })()}
                   </p>
-                  {deployment.workspace_path && <p className="mt-1 text-xs text-gray-400">工作区：{deployment.workspace_path}</p>}
+                  {tags.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{tags.map((tag) => <span key={String(tag)} className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-white/10 dark:text-gray-200">#{String(tag)}</span>)}</div>}
+                  {deployment.workspace_path && <p className="mt-3 text-xs text-gray-400">工作区：{deployment.workspace_path}</p>}
                   <div className="mt-3 flex justify-end">
+                    {project && <button onClick={() => void starDeployment(deployment, project)} disabled={starringDeploymentId === deployment.id} title="添加 GitHub Star" aria-label="添加 GitHub Star" className="hc-icon-button mr-1 h-8 w-8 hover:bg-yellow-100 disabled:opacity-50 dark:hover:bg-yellow-500/20">{starringDeploymentId === deployment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}</button>}
                     <button onClick={() => setReportProject({ id: deployment.workspace_project_id, name: deployment.project?.upstream_full_name ?? deployment.workspace_project_id })} className="mr-2 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10"><FileText className="h-4 w-4" />查看报告</button>
                     <button
                       onClick={() => void clearDeployment(deployment)}
@@ -1071,8 +1101,8 @@ export function ForkLabView() {
                       <Trash2 className="h-4 w-4" /> 删除部署记录
                     </button>
                   </div>
-                </div>
-              ))}
+                </article>;
+              })}
             </div>
           )}
         </div>
@@ -1130,6 +1160,7 @@ export function ForkLabView() {
       )}
 
       {reportProject && <ReportDialog projectId={reportProject.id} projectName={reportProject.name} onClose={() => setReportProject(null)} />}
+      <ReadmeModal isOpen={!!readmeProject} onClose={() => setReadmeProject(null)} repository={readmeProject ? toReadmeRepository(readmeProject) : null} />
 
     </section>
   );

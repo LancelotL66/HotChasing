@@ -6,10 +6,12 @@ import { hotSummarySourceHash } from '../discovery/summaryService.js';
 import { generateHotSummary, generateProjectClassification, getActiveAIConcurrency } from '../discovery/aiGateway.js';
 import { classifyProjectByRules, fetchRepositoryEnrichment, PRIMARY_CATEGORIES } from '../discovery/classificationService.js';
 import { mapWithConcurrency } from '../classic-ranking/rankingService.js';
+import { refreshDailyLibraryInBackground } from '../discovery/projectRefreshService.js';
 
 const router = Router();
 const generateSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), maxItems: z.number().int().min(12).max(40).default(30) });
 const rebuildSchema = generateSchema.extend({ force: z.boolean().default(false) });
+let historyRefresh = { status: 'idle' as 'idle' | 'running' | 'completed' | 'failed', startedAt: null as string | null, finishedAt: null as string | null };
 
 async function generateDigest(digestDate: string, maxItems: number, force = false) {
   const db = getDb();
@@ -35,9 +37,17 @@ async function generateDigest(digestDate: string, maxItems: number, force = fals
     )
     LEFT JOIN project_scores ps ON ps.repo_id = r.id
     WHERE r.created_at >= datetime('now', '-120 days')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM daily_digest_items prior_item
+        JOIN daily_digests prior_digest ON prior_digest.id = prior_item.digest_id
+        WHERE prior_item.repo_id = r.id
+          AND prior_digest.status = 'generated'
+          AND prior_digest.id <> ?
+      )
     ORDER BY final_score DESC, latest.ranking ASC, r.updated_at DESC, r.id ASC
     LIMIT ?
-  `).all(`${digestDate}T00:00:00.000Z`, nextDigestDate.toISOString(), Math.min(48, Math.max(maxItems + PRIMARY_CATEGORIES.length, 36))) as Array<Record<string, unknown>>;
+  `).all(`${digestDate}T00:00:00.000Z`, nextDigestDate.toISOString(), id, Math.min(48, Math.max(maxItems + PRIMARY_CATEGORIES.length, 36))) as Array<Record<string, unknown>>;
   const dailyCandidates = candidateProjects;
   // Select the complete digest with saved classifications or rules first. Only
   // final items need README fetching and AI enrichment.
@@ -88,6 +98,17 @@ router.post('/api/digests/generate', async (req, res) => {
     res.status(502).json({ error: error instanceof Error ? error.message : 'Digest generation failed' });
   }
 });
+
+router.post('/api/digests/refresh-library', (_req, res) => {
+  if (historyRefresh.status === 'running') return res.status(202).json(historyRefresh);
+  historyRefresh = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null };
+  void refreshDailyLibraryInBackground()
+    .then(() => { historyRefresh = { ...historyRefresh, status: 'completed', finishedAt: new Date().toISOString() }; })
+    .catch(() => { historyRefresh = { ...historyRefresh, status: 'failed', finishedAt: new Date().toISOString() }; });
+  res.status(202).json(historyRefresh);
+});
+
+router.get('/api/digests/refresh-library', (_req, res) => res.json(historyRefresh));
 
 router.post('/api/digests/rebuild-all', async (_req, res) => {
   try {

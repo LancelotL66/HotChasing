@@ -3,8 +3,9 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prepareMock = vi.fn();
+const getDbMock = vi.fn();
 vi.mock('../../src/db/connection.js', () => ({
-  getDb: () => ({ prepare: prepareMock }),
+  getDb: getDbMock,
 }));
 
 const { default: digestsRouter } = await import('../../src/routes/digests.js');
@@ -19,6 +20,8 @@ function createTestApp() {
 describe('daily digest date preview', () => {
   beforeEach(() => {
     prepareMock.mockReset();
+    getDbMock.mockReset();
+    getDbMock.mockReturnValue({ prepare: prepareMock });
     prepareMock.mockImplementation((sql: string) => ({
       get: () => sql.includes('FROM daily_digests') ? undefined : undefined,
       all: (...params: unknown[]) => {
@@ -65,6 +68,30 @@ describe('daily digest date preview', () => {
       .expect(200);
 
     expect(response.body).toMatchObject({ id: 'digest-1', digestDate: '2026-07-21', archived: true });
-    expect(prepareMock.mock.calls.some(([sql]) => String(sql).includes('FROM repositories r'))).toBe(false);
+    expect(prepareMock.mock.calls.some(([sql]) => String(sql).includes('FROM metric_snapshots'))).toBe(false);
+  });
+
+  it('excludes projects already included in a different generated digest', async () => {
+    prepareMock.mockImplementation((sql: string) => ({
+      get: () => sql.includes('FROM daily_digests') ? undefined : undefined,
+      all: () => [],
+      run: () => undefined,
+    }));
+    getDbMock.mockReturnValue({
+      prepare: prepareMock,
+      transaction: (callback: () => void) => callback,
+    });
+
+    await request(createTestApp())
+      .post('/api/digests/generate')
+      .send({ date: '2026-07-21' })
+      .expect(201);
+
+    const candidateQuery = prepareMock.mock.calls
+      .map(([sql]) => String(sql))
+      .find((sql) => sql.includes('FROM repositories r'));
+    expect(candidateQuery).toContain('FROM daily_digest_items prior_item');
+    expect(candidateQuery).toContain("prior_digest.status = 'generated'");
+    expect(candidateQuery).toContain('prior_digest.id <> ?');
   });
 });

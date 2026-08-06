@@ -3,6 +3,7 @@ import { getDb } from '../db/connection.js';
 import { fetchRepositoryEnrichment } from '../discovery/classificationService.js';
 import { generateDeploymentPlan } from '../discovery/aiGateway.js';
 import { requireProject, setProjectStatus } from './forkLabService.js';
+import { refreshRepositoryFromGitHub } from '../discovery/projectRefreshService.js';
 
 export interface PlanResult {
   plan: Record<string, unknown>;
@@ -11,20 +12,18 @@ export interface PlanResult {
 }
 
 export function getPlan(projectId: string): Record<string, unknown> | null {
-  return getDb().prepare('SELECT id,workspace_project_id,plan_json,plan_source,plan_version,locked,generated_at,updated_at FROM deployment_plans WHERE workspace_project_id=?').get(projectId) as Record<string, unknown> | null;
+  return getDb().prepare('SELECT id,workspace_project_id,plan_json,plan_source,plan_version,locked,source_hash,generated_at,updated_at FROM deployment_plans WHERE workspace_project_id=?').get(projectId) as Record<string, unknown> | null;
 }
 
 export async function generatePlan(projectId: string, force = false): Promise<PlanResult> {
   const project = requireProject(projectId);
   const db = getDb();
+  await refreshRepositoryFromGitHub(project.repo_id);
   const existing = getPlan(project.id);
   if (existing && existing.locked) {
     const error = new Error('Deployment plan is locked');
     (error as Error & { code?: string }).code = 'PLAN_LOCKED';
     throw error;
-  }
-  if (existing && !force) {
-    return { plan: existing, cached: true, source: 'cached' as unknown as 'ai' };
   }
   const repo = db.prepare('SELECT * FROM repositories WHERE id=?').get(project.repo_id) as Record<string, unknown> | undefined;
   if (!repo) {
@@ -41,17 +40,21 @@ export async function generatePlan(projectId: string, force = false): Promise<Pl
   let parsedAssessment: Record<string, unknown>;
   try { parsedAssessment = JSON.parse(String(assessment.assessment_json)) as Record<string, unknown>; } catch { parsedAssessment = {}; }
   const { readme, architecture } = await fetchRepositoryEnrichment(repo);
+  const sourceHash = `${assessment.source_hash ?? ''}:${repo.pushed_at ?? repo.updated_at ?? ''}:${readme.length}:${architecture.length}`;
+  if (existing && !force && existing.source_hash === sourceHash) {
+    return { plan: existing, cached: true, source: 'cached' as unknown as 'ai' };
+  }
   setProjectStatus(project.id, 'PLAN_GENERATING');
   try {
     const result = await generateDeploymentPlan(repo, parsedAssessment, readme, architecture);
     const now = new Date().toISOString();
     const planSource = result.source === 'ai' ? 'ai' : 'official';
     if (existing) {
-      db.prepare('UPDATE deployment_plans SET plan_json=?,plan_source=?,plan_version=plan_version+1,generated_at=?,updated_at=? WHERE workspace_project_id=?')
-        .run(JSON.stringify(result.planJson), planSource, now, now, project.id);
+      db.prepare('UPDATE deployment_plans SET plan_json=?,plan_source=?,source_hash=?,plan_version=plan_version+1,generated_at=?,updated_at=? WHERE workspace_project_id=?')
+        .run(JSON.stringify(result.planJson), planSource, sourceHash, now, now, project.id);
     } else {
-      db.prepare('INSERT INTO deployment_plans (id,workspace_project_id,plan_json,plan_source,plan_version,locked,generated_at,updated_at) VALUES (?,?,?,?,?,0,?,?)')
-        .run(randomUUID(), project.id, JSON.stringify(result.planJson), planSource, 1, now, now);
+      db.prepare('INSERT INTO deployment_plans (id,workspace_project_id,plan_json,plan_source,plan_version,locked,source_hash,generated_at,updated_at) VALUES (?,?,?,?,?,0,?,?,?)')
+        .run(randomUUID(), project.id, JSON.stringify(result.planJson), planSource, 1, sourceHash, now, now);
     }
     setProjectStatus(project.id, 'PLAN_READY');
     return { plan: getPlan(project.id) as Record<string, unknown>, cached: false, source: result.source };

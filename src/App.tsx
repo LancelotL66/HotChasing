@@ -246,9 +246,9 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-light-bg dark:bg-marketing-black text-gray-900 dark:text-text-primary transition-colors duration-200">
+    <div className="hc-app-shell text-gray-900 dark:text-text-primary transition-colors duration-200">
       <Header />
-      <main className="max-w-[1280px] mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+      <main className="mx-auto max-w-[1400px] px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
         {currentViewContent}
       </main>
       <BackToTop />

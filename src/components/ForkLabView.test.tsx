@@ -233,7 +233,7 @@ describe('ForkLabView', () => {
     mockForkLabApi.removeProject.mockResolvedValue({ deleted: true });
     render(<ForkLabView />);
     await screen.findByText('owner/demo-app');
-    fireEvent.click(screen.getByText('从实验室移除'));
+    fireEvent.click(screen.getByRole('button', { name: '从实验室移除' }));
     await waitFor(() => expect(mockForkLabApi.removeProject).toHaveBeenCalledWith('proj-1'));
   });
 

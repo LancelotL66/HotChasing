@@ -13,6 +13,7 @@ export interface DailyDigestItem {
   is_top100?: number;
 }
 export interface DailyDigest { id: string; digest_date: string; title: string; summary: string; generated_at: string; status: string; items: DailyDigestItem[]; }
+export interface HistoryRefreshStatus { status: 'idle' | 'running' | 'completed' | 'failed'; startedAt: string | null; finishedAt: string | null; }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!backend.backendUrl) throw new Error('需要启动本地后端以使用每日合集');
@@ -24,6 +25,8 @@ export const digestApi = {
   list: () => request<Array<Pick<DailyDigest, 'id' | 'digest_date' | 'title' | 'summary' | 'generated_at' | 'status'>>>('/digests'),
   get: (date: string) => request<DailyDigest>(`/digests/${encodeURIComponent(date)}`),
   generate: (force = false, date?: string) => request<{ digestDate: string; archived: boolean }>('/digests/generate', { method: 'POST', body: JSON.stringify({ force, ...(date ? { date } : {}) }) }),
+  refreshLibrary: () => request<HistoryRefreshStatus>('/digests/refresh-library', { method: 'POST', body: '{}' }),
+  getRefreshLibraryStatus: () => request<HistoryRefreshStatus>('/digests/refresh-library'),
   rebuildAll: () => request<{ rebuilt: number; failed: Array<{ date: string; error: string }> }>('/digests/rebuild-all', { method: 'POST', body: '{}' }),
   collectHotProjects: () => request<{ id: string; channels: string[]; itemsFound: number; itemsSaved: number }>('/discovery/run', { method: 'POST', body: '{}' }),
   backfillDaily: (date: string) => request<{ dates: string[] }>('/discovery/backfill-daily', { method: 'POST', body: JSON.stringify({ date }) }),

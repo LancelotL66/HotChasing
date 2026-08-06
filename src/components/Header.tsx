@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2, Newspaper, Trophy, FlaskConical } from 'lucide-react';
+import { Settings, Calendar, Search, Moon, Sun, LogOut, TrendingUp, GitFork, FileCode2, Newspaper, Trophy, FlaskConical, Menu, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useDialog } from '../hooks/useDialog';
 import { HeaderMenuId, AppState } from '../types';
@@ -39,19 +39,24 @@ export const Header: React.FC = () => {
   const visibleMenus = useMemo(() =>
     [...headerMenuConfig]
       .filter(item => item.visible && item.id !== 'subscription')
-      .sort((a, b) => a.order - b.order),
+      .sort((a, b) => {
+        // Keep Settings as the terminal navigation destination even when users reorder menus.
+        if (a.id === 'settings') return 1;
+        if (b.id === 'settings') return -1;
+        return a.order - b.order;
+      }),
     [headerMenuConfig]
   );
 
   const t = (zh: string, en: string) => language === 'zh' ? zh : en;
 
   return (
-    <header className="bg-light-bg dark:bg-panel-dark border-b border-black/[0.06] dark:border-white/[0.04] sticky top-0 z-50 hd-drag lg:hd-drag relative">
+    <header className="sticky top-0 z-50 border-b border-black/[0.06] bg-light-bg/90 backdrop-blur-md dark:border-white/[0.06] dark:bg-panel-dark/90 hd-drag lg:hd-drag relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16">
           {/* Logo and Title */}
           <div className="flex min-w-0 items-center space-x-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-lg overflow-hidden flex-shrink-0">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-md ring-1 ring-black/[0.06] dark:ring-white/[0.08]">
               <img 
                 src="./icon.png" 
                 alt="HotChasing"
@@ -59,7 +64,7 @@ export const Header: React.FC = () => {
               />
             </div>
             <div className="min-w-0 hidden sm:block">
-              <h1 className="truncate text-xl font-medium text-gray-900 dark:text-text-primary tracking-tight">
+              <h1 className="truncate text-xl font-semibold text-gray-900 dark:text-text-primary">
                 HotChasing
               </h1>
               <p className="truncate text-sm text-gray-500 dark:text-text-tertiary">
@@ -85,11 +90,12 @@ export const Header: React.FC = () => {
                   onClick={() => setCurrentView(menuItem.id as AppState['currentView'])}
                   title={t(meta.labelZh, meta.labelEn)}
                   aria-label={t(meta.labelZh, meta.labelEn)}
-                  className={`flex items-center whitespace-nowrap rounded-lg font-medium transition-colors ${
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex h-9 items-center whitespace-nowrap rounded-md font-medium transition-colors ${
                     isActive
                       ? 'bg-white dark:bg-white/[0.1] text-gray-900 dark:text-text-primary shadow-sm border border-black/[0.06] dark:border-white/[0.04]'
                       : 'text-gray-700 dark:text-text-secondary hover:bg-light-surface dark:hover:bg-white/5'
-                  } xl:px-4 xl:py-2 p-2.5`}
+                  } xl:px-3.5 p-2.5`}
                 >
                   <Icon className="w-4 h-4 flex-shrink-0" />
                   <span className="hidden xl:inline ml-2">{t(meta.labelZh, meta.labelEn)}</span>
@@ -133,22 +139,16 @@ export const Header: React.FC = () => {
             {/* Mobile menu toggle */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg hover:bg-light-surface dark:hover:bg-white/5 transition-colors"
+              className="hc-icon-button md:hidden"
               aria-label={t('菜单', 'Menu')}
             >
-              <svg className="w-5 h-5 text-gray-700 dark:text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                {mobileMenuOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
 
             {/* Theme Toggle */}
             <button
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              className="p-2 rounded-lg hover:bg-light-surface dark:hover:bg-white/5 transition-colors"
+              className="hc-icon-button"
               title={t('切换主题', 'Toggle theme')}
             >
               {theme === 'light' ? (
@@ -164,7 +164,7 @@ export const Header: React.FC = () => {
                 <img
                   src={user.avatar_url}
                   alt={user.name || user.login}
-                  className="w-8 h-8 rounded-full"
+                  className="h-8 w-8 rounded-full ring-1 ring-black/[0.08] dark:ring-white/[0.12]"
                 />
                 <div className="min-w-0 hidden sm:block">
                   <p className="truncate text-sm font-medium text-gray-900 dark:text-text-primary">
@@ -184,7 +184,7 @@ export const Header: React.FC = () => {
                       logout();
                     }
                   }}
-                    className="p-2 rounded-lg hover:bg-light-surface dark:hover:bg-white/5 transition-colors"
+                    className="hc-icon-button"
                   title={t('退出登录', 'Logout')}
                 >
                   <LogOut className="w-4 h-4 text-gray-700 dark:text-text-secondary" />

@@ -84,6 +84,7 @@ export function DailyDigestView() {
   const [archiveNotice, setArchiveNotice] = useState("");
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
   const [updatePhase, setUpdatePhase] = useState("");
+  const [historyRefreshStatus, setHistoryRefreshStatus] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [starringId, setStarringId] = useState<number | null>(null);
@@ -142,6 +143,17 @@ export function DailyDigestView() {
     const timer = window.setTimeout(() => setArchiveNotice(""), 5000);
     return () => window.clearTimeout(timer);
   }, [archiveNotice]);
+  useEffect(() => {
+    if (historyRefreshStatus !== "running") return;
+    const timer = window.setInterval(() => {
+      void digestApi.getRefreshLibraryStatus().then((status) => {
+        setHistoryRefreshStatus(status.status);
+        if (status.status === "completed") setArchiveNotice("历史日报项目已完成后台更新。");
+        if (status.status === "failed") setArchiveNotice("历史日报项目更新未完成，请稍后重试。");
+      }).catch(() => setHistoryRefreshStatus("failed"));
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [historyRefreshStatus]);
   const showToday = () => {
     setTimeMode("today");
     setSelectedDate("");
@@ -251,6 +263,8 @@ export function DailyDigestView() {
           ? `已补采 ${targetDate} 热点候选并生成该日日报。`
           : `已采集热点候选项目并生成今日日报。`,
       );
+      const historyRefresh = await digestApi.refreshLibrary();
+      setHistoryRefreshStatus(historyRefresh.status);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "热点采集或日报生成失败");
     } finally {
@@ -352,19 +366,19 @@ export function DailyDigestView() {
     return (
       <section className="space-y-5">
         <div>
-          <h2 className="text-2xl font-semibold">热点</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="hc-page-heading">热点</h2>
+          <p className="hc-page-description">
             今日精选提供可回溯的系统日报；实时趋势展示 GitHub 当前升温的项目。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setHotView("digest")}
-            className="rounded-lg border px-4 py-2 text-sm font-medium"
+            className="hc-button-secondary"
           >
             今日精选
           </button>
-          <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+          <button className="hc-button-primary">
             实时趋势
           </button>
         </div>
@@ -373,11 +387,11 @@ export function DailyDigestView() {
     );
   }
   return (
-    <section className="space-y-5">
+    <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold">热点</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="hc-page-heading">热点</h2>
+          <p className="hc-page-description max-w-2xl">
             新近项目按 README 和工程结构驱动的 AI 分类组织，不使用个人星标仓库。
           </p>
         </div>
@@ -385,7 +399,7 @@ export function DailyDigestView() {
           <button
             onClick={collectAndGenerate}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+            className="hc-button-primary"
           >
             <Radar className="h-4 w-4" />
             {timeMode === "date" && selectedDate ? `获取 ${selectedDate} 日报` : "采集今日日报"}
@@ -393,39 +407,45 @@ export function DailyDigestView() {
           <button
             onClick={rebuildAllDigests}
             disabled={loading || !digests.length}
-            className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 disabled:opacity-50 dark:border-blue-500/60 dark:text-blue-200"
+            className="hc-button-secondary"
           >
             测试：重新采集全部日报
           </button>
         </div>
       </div>
       <div className="space-y-1">
-        <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-text-tertiary">
           上次更新：{lastUpdated ? new Date(lastUpdated).toLocaleString("zh-CN") : "尚未生成"}
         </p>
         {updateProgress !== null && (
-          <div aria-live="polite">
-            <div className="mb-1 flex justify-between text-xs text-blue-700 dark:text-blue-300">
+          <div aria-live="polite" className="hc-notice p-3">
+              <div className="mb-2 flex justify-between text-xs font-medium">
               <span>{updatePhase}</span><span>{updateProgress}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-blue-100 dark:bg-blue-950/40">
-              <div className="h-full rounded-full bg-blue-600 transition-[width] duration-500" style={{ width: `${updateProgress}%` }} />
+              <div className="h-1.5 overflow-hidden rounded-full bg-brand-indigo/15 dark:bg-white/[0.08]">
+                <div className="h-full rounded-full bg-brand-indigo transition-[width] duration-500" style={{ width: `${updateProgress}%` }} />
             </div>
+          </div>
+        )}
+        {historyRefreshStatus === "running" && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-text-tertiary" role="status">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-indigo" />
+            <span>正在后台检查历史日报项目更新，不影响当前日报使用。</span>
           </div>
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+          <button className="hc-button-primary">
           今日精选
         </button>
         <button
           onClick={() => setHotView("trending")}
-          className="rounded-lg border px-4 py-2 text-sm font-medium"
+          className="hc-button-secondary"
         >
           实时趋势
         </button>
       </div>
-      <details className="rounded-lg border border-black/10 bg-white px-4 py-3 text-sm text-gray-600 dark:bg-white/5 dark:text-gray-300">
+      <details className="hc-date-panel px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
         <summary className="cursor-pointer font-medium text-gray-900 dark:text-white">
           日报如何筛选热点？
         </summary>
@@ -466,14 +486,14 @@ export function DailyDigestView() {
         </div>
       </details>
       {message && (
-        <p className="rounded-lg bg-blue-50 p-3 text-blue-800 dark:bg-blue-950/30 dark:text-blue-100">
+        <p className="hc-notice p-3 text-sm">
           {message}
         </p>
       )}
       {archiveNotice && (
-        <div className="fixed right-4 top-4 z-50 flex max-w-sm items-start gap-3 rounded-lg border border-blue-200 bg-white p-4 text-sm text-blue-900 shadow-lg dark:border-blue-500/40 dark:bg-slate-900 dark:text-blue-100" role="status">
+        <div className="hc-notice fixed right-4 top-4 z-50 flex max-w-sm items-start gap-3 p-4 text-sm shadow-dialog" role="status">
           <p className="flex-1">{archiveNotice}</p>
-          <button onClick={() => setArchiveNotice("")} aria-label="关闭提示" className="rounded p-1 hover:bg-blue-100 dark:hover:bg-blue-950/50"><X className="h-4 w-4" /></button>
+          <button onClick={() => setArchiveNotice("")} aria-label="关闭提示" className="hc-icon-button h-7 w-7"><X className="h-4 w-4" /></button>
         </div>
       )}
       <div className="flex flex-wrap gap-2">
@@ -484,12 +504,12 @@ export function DailyDigestView() {
             if (event.key === "Enter") search();
           }}
           placeholder="用自然语言搜索当前日报"
-          className="min-w-64 flex-1 rounded-lg border bg-transparent px-3 py-2 text-sm"
+          className="hc-input min-w-64 flex-1 px-3 py-2 text-sm"
         />
         <button
           onClick={search}
           disabled={loading || !digest}
-          className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm disabled:opacity-50"
+          className="hc-button-secondary"
         >
           <Search className="h-4 w-4" />
           AI 语义搜索
@@ -498,20 +518,22 @@ export function DailyDigestView() {
       <div className="flex flex-wrap gap-2">
         <button
           onClick={showToday}
-          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${timeMode === "today" ? "border-blue-400 bg-blue-500/15 text-blue-700 dark:text-blue-200" : "border-black/10 text-gray-600 hover:border-blue-300 hover:text-blue-700 dark:border-white/10 dark:text-gray-300 dark:hover:border-blue-400/60 dark:hover:text-blue-200"}`}
+          data-active={timeMode === "today"}
+          className="hc-segment"
         >
           今日日报
         </button>
         <button
           onClick={enableRangeFilter}
-          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${timeMode === "range" ? "border-blue-400 bg-blue-500/15 text-blue-700 dark:text-blue-200" : "border-black/10 text-gray-600 hover:border-blue-300 hover:text-blue-700 dark:border-white/10 dark:text-gray-300 dark:hover:border-blue-400/60 dark:hover:text-blue-200"}`}
+          data-active={timeMode === "range"}
+          className="hc-segment"
         >
           范围筛选
         </button>
         <button
           onClick={showAllDigests}
           disabled={!digests.length || loading}
-          className="rounded-lg border border-black/10 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-blue-300 hover:text-blue-700 disabled:opacity-50 dark:border-white/10 dark:text-gray-300 dark:hover:border-blue-400/60 dark:hover:text-blue-200"
+          className="hc-button-secondary"
         >
           显示全部日报
         </button>
@@ -519,10 +541,10 @@ export function DailyDigestView() {
       {timeMode !== "range" && (
       <label
         htmlFor="digest-date"
-        className="group flex cursor-pointer items-center justify-between gap-4 overflow-hidden rounded-xl border border-blue-200/80 bg-gradient-to-r from-blue-50 via-white to-cyan-50 px-4 py-3 shadow-sm transition-all hover:border-blue-400 hover:shadow-blue-500/10 dark:border-blue-400/20 dark:from-blue-950/40 dark:via-slate-950/70 dark:to-cyan-950/30 dark:hover:border-blue-400/50 dark:hover:shadow-blue-500/10"
+        className="hc-date-panel group flex cursor-pointer items-center justify-between gap-4 overflow-hidden px-4 py-3 transition-colors hover:border-brand-indigo/50"
       >
         <span className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition-transform group-hover:scale-105">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-indigo text-white transition-transform group-hover:scale-105">
             <CalendarDays className="h-4 w-4" />
           </span>
           <span className="min-w-0">
@@ -537,13 +559,13 @@ export function DailyDigestView() {
           min={digests.at(-1)?.digest_date}
           max={new Date().toISOString().slice(0, 10)}
           onChange={(event) => selectArchiveDate(event.target.value)}
-          className="[color-scheme:light] w-[10.5rem] cursor-pointer rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-sm font-medium text-blue-950 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:[color-scheme:dark] dark:border-white/10 dark:bg-white/[0.07] dark:text-blue-100"
+          className="hc-input [color-scheme:light] w-[10.5rem] cursor-pointer px-3 py-2 text-sm font-medium dark:[color-scheme:dark]"
         />
       </label>
       )}
       {timeMode === "range" && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200/80 bg-gradient-to-r from-blue-50 via-white to-cyan-50 px-4 py-3 text-sm dark:border-blue-400/20 dark:from-blue-950/40 dark:via-slate-950/70 dark:to-cyan-950/30">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white shadow-lg shadow-blue-600/25">
+        <div className="hc-date-panel flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-brand-indigo text-white">
             <CalendarDays className="h-4 w-4 text-white" />
           </span>
           <label className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
@@ -554,10 +576,10 @@ export function DailyDigestView() {
               min={digests.at(-1)?.digest_date}
               max={rangeEnd || digests[0]?.digest_date}
               onChange={(event) => selectRangeStart(event.target.value)}
-              className="[color-scheme:light] cursor-pointer rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-sm font-medium text-blue-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:[color-scheme:dark] dark:border-white/10 dark:bg-white/[0.07] dark:text-blue-100"
+              className="hc-input [color-scheme:light] cursor-pointer px-3 py-2 text-sm font-medium dark:[color-scheme:dark]"
             />
           </label>
-          <span className="text-blue-400">-</span>
+          <span className="text-gray-400 dark:text-text-quaternary">-</span>
           <label className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
             结束日报
             <input
@@ -566,7 +588,7 @@ export function DailyDigestView() {
               min={rangeStart || digests.at(-1)?.digest_date}
               max={digests[0]?.digest_date}
               onChange={(event) => selectRangeEnd(event.target.value)}
-              className="[color-scheme:light] cursor-pointer rounded-lg border border-blue-200 bg-white/80 px-3 py-2 text-sm font-medium text-blue-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 dark:[color-scheme:dark] dark:border-white/10 dark:bg-white/[0.07] dark:text-blue-100"
+              className="hc-input [color-scheme:light] cursor-pointer px-3 py-2 text-sm font-medium dark:[color-scheme:dark]"
             />
           </label>
           {(rangeStart || rangeEnd) && (
@@ -576,7 +598,7 @@ export function DailyDigestView() {
                 setRangeEnd("");
                 setSemanticResults(null);
               }}
-              className="ml-auto text-blue-600 hover:text-blue-500 dark:text-blue-300"
+              className="ml-auto text-sm font-medium text-brand-indigo hover:text-brand-hover"
             >
               清除筛选
             </button>
@@ -591,7 +613,7 @@ export function DailyDigestView() {
               setSelectedCategory(category);
               setSemanticResults(null);
             }}
-            className={`rounded-full border px-3 py-1 text-sm ${selectedCategory === category ? "border-blue-600 bg-blue-600 text-white" : ""}`}
+            className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${selectedCategory === category ? "border-brand-indigo bg-brand-indigo text-white" : "border-black/[0.1] text-gray-600 hover:border-brand-indigo/50 hover:text-brand-indigo dark:border-white/[0.1] dark:text-text-secondary dark:hover:border-brand-hover/60 dark:hover:text-text-primary"}`}
           >
             {category}
           </button>
@@ -610,7 +632,7 @@ export function DailyDigestView() {
           {grouped.map(({ category, items }) => (
             <section key={category} className="space-y-3">
               {category && (
-                <h4 className="border-l-4 border-blue-600 pl-3 text-lg font-semibold">
+                <h4 className="border-l-2 border-brand-indigo pl-3 text-lg font-semibold">
                   {category}
                 </h4>
               )}
@@ -618,14 +640,14 @@ export function DailyDigestView() {
                 <article
                   key={`${category}-${item.repo_id}-${item.reason}`}
                   onClick={() => setReadmeRepository(toRepository(item))}
-                  className={`cursor-pointer rounded-xl border bg-white p-5 shadow-sm transition-colors hover:border-blue-400 dark:bg-white/5 ${item.reason.startsWith("今日值得关注") ? "border-blue-500 ring-1 ring-blue-300 dark:ring-blue-700" : "border-black/10"}`}
+                  className={`cursor-pointer rounded-lg border bg-white p-4 transition-[border-color,background-color,transform] duration-200 hover:-translate-y-0.5 hover:border-brand-indigo/60 dark:bg-white/[0.035] ${item.reason.startsWith("今日值得关注") ? "border-brand-indigo ring-1 ring-brand-indigo/25" : "border-black/[0.08] dark:border-white/[0.08]"}`}
                 >
                   {item.reason.startsWith("今日值得关注") && (
-                    <div className="mb-3 inline-flex rounded-full bg-blue-600 px-2.5 py-1 text-xs font-medium text-white">
+                    <div className="mb-3 inline-flex rounded-md bg-brand-indigo px-2.5 py-1 text-xs font-medium text-white">
                       今日值得关注
                     </div>
                   )}
-                  <div className="mb-3 min-h-12 rounded-lg bg-blue-50 p-3 text-sm leading-6 text-blue-950 dark:bg-blue-950/30 dark:text-blue-100">
+                  <div className="hc-notice mb-3 min-h-12 p-3 text-sm leading-6">
                     <Sparkles className="mr-2 inline h-4 w-4" />
                     {item.hot_summary_zh ?? "中文总结正在生成，请稍后刷新。"}
                   </div>
@@ -655,7 +677,7 @@ export function DailyDigestView() {
                         target="_blank"
                         rel="noreferrer"
                         title="在 Z-Read 中打开"
-                        className="rounded-md p-2 hover:bg-gray-100 dark:hover:bg-white/10"
+                        className="hc-icon-button h-8 w-8"
                       >
                         <ExternalLink className="h-4 w-4" />
                       </a>
@@ -665,7 +687,7 @@ export function DailyDigestView() {
                         target="_blank"
                         rel="noreferrer"
                         title="在 GitHub 中打开"
-                        className="rounded-md p-2 hover:bg-gray-100 dark:hover:bg-white/10"
+                        className="hc-icon-button h-8 w-8"
                       >
                         <Github className="h-4 w-4" />
                       </a>
@@ -676,7 +698,7 @@ export function DailyDigestView() {
                         }}
                         disabled={starringId === item.repo_id || isStarred(item.repo_id)}
                         title={isStarred(item.repo_id) ? "已添加 GitHub Star" : "添加 GitHub Star"}
-                        className="rounded-md p-2 hover:bg-yellow-100 disabled:opacity-50 dark:hover:bg-yellow-500/20"
+                        className="hc-icon-button h-8 w-8 hover:bg-yellow-100 disabled:opacity-50 dark:hover:bg-yellow-500/20"
                       >
                         <Star className={`h-4 w-4 ${isStarred(item.repo_id) ? "fill-yellow-400 text-yellow-500" : ""}`} />
                       </button>
@@ -687,12 +709,12 @@ export function DailyDigestView() {
                         }}
                         disabled={forkingId === item.repo_id || isForked(item.repo_id)}
                         title={isForked(item.repo_id) ? "已加入 Fork 实验室" : "加入 Fork 实验室"}
-                        className="rounded-md p-2 hover:bg-blue-100 disabled:opacity-60 dark:hover:bg-blue-500/20"
+                        className="hc-icon-button h-8 w-8 hover:bg-brand-indigo/10 disabled:opacity-60 dark:hover:bg-brand-indigo/20"
                       >
                         {forkingId === item.repo_id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          <GitFork className={`h-4 w-4 ${isForked(item.repo_id) ? "fill-blue-500 text-blue-500" : "text-blue-600"}`} />
+                          <GitFork className={`h-4 w-4 ${isForked(item.repo_id) ? "fill-brand-hover text-brand-hover" : "text-brand-indigo"}`} />
                         )}
                       </button>
                     </div>
@@ -731,7 +753,7 @@ export function DailyDigestView() {
                       await digestApi.regenerateSummary(item.repo_id);
                       await load(digest.digest_date);
                     }}
-                    className="mt-3 text-sm text-blue-600"
+                    className="mt-3 text-sm font-medium text-brand-indigo hover:text-brand-hover"
                   >
                     重新生成中文总结
                   </button>

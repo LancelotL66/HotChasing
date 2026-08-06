@@ -3,7 +3,7 @@ import { getDb } from '../db/connection.js';
 import { decrypt } from '../services/crypto.js';
 import { config } from '../config.js';
 
-function githubHeaders(): Record<string, string> {
+export function githubHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'User-Agent': 'HotChasing' };
   try {
     const row = getDb().prepare('SELECT value FROM settings WHERE key=?').get('github_token') as { value?: string } | undefined;
@@ -81,23 +81,25 @@ export async function fetchRepositoryArchitecture(fullName: string): Promise<str
   } catch { return ''; }
 }
 
-export async function fetchRepositoryEnrichment(repo: Record<string, unknown>): Promise<{ readme: string; architecture: string }> {
-  const updatedAt = typeof repo.updated_at === 'string' ? repo.updated_at : '';
+export async function fetchRepositoryEnrichment(repo: Record<string, unknown>): Promise<{ readme: string; architecture: string; readmeChanged: boolean }> {
+  const updatedAt = typeof repo.pushed_at === 'string' ? repo.pushed_at : typeof repo.updated_at === 'string' ? repo.updated_at : '';
   const cachedAt = typeof repo.enrichment_updated_at === 'string' ? repo.enrichment_updated_at : '';
   const cachedReadme = typeof repo.enrichment_readme === 'string' ? repo.enrichment_readme : '';
   const cachedArchitecture = typeof repo.enrichment_architecture === 'string' ? repo.enrichment_architecture : '';
   // 仅在缓存确实有内容时复用；之前限流写入的空缓存需要重新拉取
   if (updatedAt && updatedAt === cachedAt && (cachedReadme || cachedArchitecture)) {
-    return { readme: cachedReadme, architecture: cachedArchitecture };
+    return { readme: cachedReadme, architecture: cachedArchitecture, readmeChanged: false };
   }
 
   const fullName = String(repo.full_name ?? '');
-  const [readme, architecture] = await Promise.all([fetchRepositoryReadme(fullName), fetchRepositoryArchitecture(fullName)]);
+  const readme = await fetchRepositoryReadme(fullName);
+  const readmeChanged = readme !== cachedReadme;
+  const architecture = readmeChanged ? await fetchRepositoryArchitecture(fullName) : cachedArchitecture;
   if (repo.id !== undefined) {
     getDb().prepare('UPDATE repositories SET enrichment_readme=?,enrichment_architecture=?,enrichment_updated_at=? WHERE id=?')
       .run(readme, architecture, updatedAt || null, repo.id);
   }
-  return { readme, architecture };
+  return { readme, architecture, readmeChanged };
 }
 
 export function classifyProjectByRules(repo: Record<string, unknown>): ProjectClassification {
