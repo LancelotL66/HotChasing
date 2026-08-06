@@ -230,7 +230,7 @@ export const deploymentPlanSchema = z.object({
   needsUserApproval: z.boolean().default(false),
 });
 
-function getActiveAIConfigRow(): Record<string, unknown> | undefined {
+export function getActiveAIConfigRow(): Record<string, unknown> | undefined {
   const db = getDb();
   const setting = db.prepare('SELECT value FROM settings WHERE key=?').get('activeAIConfig') as { value?: string } | undefined;
   let selected: unknown = null;
@@ -241,7 +241,7 @@ function getActiveAIConfigRow(): Record<string, unknown> | undefined {
     : db.prepare('SELECT * FROM ai_configs WHERE is_active = 1 ORDER BY id LIMIT 1').get() as Record<string, unknown> | undefined;
 }
 
-async function requestJsonContent(aiConfig: Record<string, unknown>, prompt: string, maxTokens: number, temperature: number): Promise<string> {
+export async function requestJsonContent(aiConfig: Record<string, unknown>, prompt: string, maxTokens: number, temperature: number): Promise<string> {
   const apiType = String(aiConfig.api_type || 'openai');
   const apiKey = aiConfig.api_key_encrypted ? decrypt(String(aiConfig.api_key_encrypted), config.encryptionKey) : '';
   const model = String(aiConfig.model || '');

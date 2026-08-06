@@ -372,7 +372,7 @@ export interface AssetFilter {
   icon?: string;
 }
 
-export type HeaderMenuId = 'repositories' | 'gists' | 'releases' | 'forks' | 'subscription' | 'digest' | 'top100' | 'fork-lab' | 'settings';
+export type HeaderMenuId = 'repositories' | 'gists' | 'releases' | 'forks' | 'subscription' | 'digest' | 'top100' | 'fork-lab' | 'research' | 'settings';
 
 export interface HeaderMenuItem {
   id: HeaderMenuId;
@@ -389,6 +389,7 @@ export const defaultHeaderMenuConfig: HeaderMenuItem[] = [
   { id: 'digest', visible: true, order: 5 },
   { id: 'top100', visible: true, order: 6 },
   { id: 'fork-lab', visible: true, order: 3 },
+  { id: 'research', visible: true, order: 7 },
   { id: 'settings', visible: true, order: 8 },
 ];
 
@@ -457,7 +458,7 @@ export interface AppState {
   
   // UI
   theme: 'light' | 'dark';
-  currentView: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest' | 'top100' | 'fork-lab';
+  currentView: 'repositories' | 'gists' | 'releases' | 'forks' | 'settings' | 'subscription' | 'digest' | 'top100' | 'fork-lab' | 'research';
   selectedCategory: string;
   language: 'zh' | 'en';
   isSidebarCollapsed: boolean;

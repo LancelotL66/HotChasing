@@ -14,6 +14,7 @@ import { BackToTop } from './components/BackToTop';
 import { DailyDigestView } from './components/DailyDigestView';
 import { Top100View } from './components/Top100View';
 import { ForkLabView } from './components/ForkLabView';
+import { ResearchView } from './components/ResearchView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppStore } from './store/useAppStore';
 import { logger } from './services/logger';
@@ -223,6 +224,12 @@ function App() {
         return (
           <ErrorBoundary>
             <ForkLabView />
+          </ErrorBoundary>
+        );
+      case 'research':
+        return (
+          <ErrorBoundary>
+            <ResearchView />
           </ErrorBoundary>
         );
       default:

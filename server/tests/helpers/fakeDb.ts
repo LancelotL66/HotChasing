@@ -102,6 +102,12 @@ export class FakeDb {
           const rows = [...store.values()].filter((row) => matchesRow(row, conditions, params.slice(0, whereCount)));
           return { c: rows.length };
         }
+        if (/MAX\((\w+)\)/i.test(sql)) {
+          const col = /MAX\((\w+)\)/i.exec(sql)?.[1] ?? '';
+          const rows = [...store.values()].filter((row) => matchesRow(row, conditions, params.slice(0, whereCount)));
+          const values = rows.map((row) => Number(row[col])).filter((value) => Number.isFinite(value));
+          return { [col]: values.length > 0 ? Math.max(...values) : null };
+        }
         if (sql.includes('SELECT')) {
           let rows = [...store.values()].filter((row) => matchesRow(row, conditions, params.slice(0, whereCount)));
           rows = sortRows(rows, sql);

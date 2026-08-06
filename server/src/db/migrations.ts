@@ -316,6 +316,186 @@ add('enrichment_readme', 'TEXT');
     }
     db.exec('CREATE INDEX IF NOT EXISTS idx_repositories_checked_at ON repositories(repository_checked_at)');
   },
+  14: (db) => {
+    // 主题研究（独立业务域）：不引用日报 / Top100 / 热点分相关表。
+    // 仓库缓存是通用的 GitHub 缓存，与 repositories（Star 库）解耦。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS research_topics (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        original_requirement TEXT NOT NULL,
+        status TEXT NOT NULL,
+        current_state_version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS research_state_versions (
+        id TEXT PRIMARY KEY,
+        topic_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        parent_version INTEGER,
+        state_json TEXT NOT NULL,
+        change_proposal_id TEXT,
+        change_summary TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(topic_id, version)
+      );
+      CREATE TABLE IF NOT EXISTS research_change_proposals (
+        id TEXT PRIMARY KEY,
+        topic_id TEXT NOT NULL,
+        base_version INTEGER NOT NULL,
+        user_message TEXT,
+        proposal_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS github_repository_cache (
+        github_node_id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        name TEXT NOT NULL,
+        full_name TEXT NOT NULL UNIQUE,
+        html_url TEXT NOT NULL,
+        description TEXT,
+        default_branch TEXT,
+        primary_language TEXT,
+        topics_json TEXT,
+        license_spdx TEXT,
+        stars INTEGER,
+        forks INTEGER,
+        open_issues INTEGER,
+        archived INTEGER NOT NULL DEFAULT 0,
+        disabled INTEGER NOT NULL DEFAULT 0,
+        is_fork INTEGER NOT NULL DEFAULT 0,
+        parent_full_name TEXT,
+        pushed_at TEXT,
+        github_updated_at TEXT,
+        metadata_fetched_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS github_repository_analysis_cache (
+        github_node_id TEXT PRIMARY KEY,
+        source_commit_sha TEXT,
+        readme_hash TEXT,
+        readme_text TEXT,
+        root_files_json TEXT,
+        deployment_files_json TEXT,
+        structured_analysis_json TEXT,
+        analysis_model TEXT,
+        analysis_version TEXT,
+        analyzed_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS research_github_query_cache (
+        cache_key TEXT PRIMARY KEY,
+        normalized_query TEXT NOT NULL,
+        page INTEGER NOT NULL,
+        per_page INTEGER NOT NULL,
+        result_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS research_github_search_runs (
+        id TEXT PRIMARY KEY,
+        topic_id TEXT NOT NULL,
+        requirement_version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'FULL',
+        stage_id TEXT,
+        search_strategy_json TEXT NOT NULL,
+        query_count INTEGER NOT NULL DEFAULT 0,
+        raw_result_count INTEGER NOT NULL DEFAULT 0,
+        unique_result_count INTEGER NOT NULL DEFAULT 0,
+        analyzed_result_count INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        finished_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS research_github_search_queries (
+        id TEXT PRIMARY KEY,
+        search_run_id TEXT NOT NULL,
+        stage_id TEXT,
+        query TEXT NOT NULL,
+        purpose TEXT,
+        status TEXT NOT NULL,
+        result_count INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT
+      );
+      CREATE TABLE IF NOT EXISTS research_tool_candidates (
+        id TEXT PRIMARY KEY,
+        topic_id TEXT NOT NULL,
+        research_state_version INTEGER NOT NULL,
+        search_run_id TEXT,
+        github_node_id TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        stage_id TEXT,
+        match_level TEXT,
+        match_score REAL,
+        tier TEXT,
+        source_query TEXT,
+        ai_explanation_json TEXT,
+        filter_reason TEXT,
+        selection_status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(topic_id, github_node_id)
+      );
+      CREATE TABLE IF NOT EXISTS research_topic_tools (
+        id TEXT PRIMARY KEY,
+        topic_id TEXT NOT NULL,
+        research_state_version INTEGER NOT NULL,
+        github_node_id TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        stage_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        selection_role TEXT NOT NULL,
+        status TEXT NOT NULL,
+        acquisition_mode TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(topic_id, github_node_id)
+      );
+      CREATE TABLE IF NOT EXISTS fork_lab_themes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        research_topic_id TEXT,
+        current_version INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL,
+        local_status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS fork_lab_theme_versions (
+        id TEXT PRIMARY KEY,
+        theme_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        research_state_version INTEGER NOT NULL,
+        objective TEXT NOT NULL,
+        plan_json TEXT NOT NULL,
+        workflow_yaml TEXT,
+        locked INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        UNIQUE(theme_id, version)
+      );
+      CREATE TABLE IF NOT EXISTS fork_lab_theme_tools (
+        id TEXT PRIMARY KEY,
+        theme_version_id TEXT NOT NULL,
+        github_node_id TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        acquisition_mode TEXT NOT NULL,
+        fork_workspace_project_id TEXT,
+        position INTEGER NOT NULL,
+        config_json TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_research_state_versions_topic ON research_state_versions(topic_id, version DESC);
+      CREATE INDEX IF NOT EXISTS idx_research_change_proposals_topic ON research_change_proposals(topic_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_research_search_runs_topic ON research_github_search_runs(topic_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_research_search_queries_run ON research_github_search_queries(search_run_id);
+      CREATE INDEX IF NOT EXISTS idx_research_candidates_topic_stage ON research_tool_candidates(topic_id, stage_id);
+      CREATE INDEX IF NOT EXISTS idx_research_topic_tools_topic ON research_topic_tools(topic_id);
+      CREATE INDEX IF NOT EXISTS idx_fork_lab_theme_versions_theme ON fork_lab_theme_versions(theme_id, version DESC);
+      CREATE INDEX IF NOT EXISTS idx_fork_lab_theme_tools_version ON fork_lab_theme_tools(theme_version_id, position);
+    `);
+  },
 };
 
 export function runMigrations(db: Database.Database): void {

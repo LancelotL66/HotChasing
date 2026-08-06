@@ -14,6 +14,7 @@ import {
   Newspaper,
   Trophy,
   FlaskConical,
+  Microscope,
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { HeaderMenuId } from '../../types';
@@ -36,6 +37,7 @@ const MENU_META: Record<HeaderMenuId, {
   digest: { icon: Newspaper, labelZh: '热点', labelEn: 'Hot', canHide: true },
   top100: { icon: Trophy, labelZh: 'Top100', labelEn: 'Top 100', canHide: true },
   'fork-lab': { icon: FlaskConical, labelZh: 'Fork 实验室', labelEn: 'Fork Lab', canHide: true },
+  research: { icon: Microscope, labelZh: '主题研究', labelEn: 'Research', canHide: true },
   settings: { icon: Settings, labelZh: '设置', labelEn: 'Settings', canHide: false },
 };
 
