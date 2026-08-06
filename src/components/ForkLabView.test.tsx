@@ -250,13 +250,15 @@ describe('ForkLabView', () => {
         status: 'RUNNING',
         started_at: '2026-08-01T00:00:00.000Z',
         stopped_at: null,
-        project: { upstream_full_name: 'owner/demo-app', source: 'top100' },
+        project: createProject({ project_status: 'DEPLOYED' }),
       }],
     });
     render(<ForkLabView />);
     await screen.findByText('项目库');
     fireEvent.click(screen.getAllByRole('button', { name: '已部署' })[0]);
     expect(await screen.findByText('owner/demo-app')).toBeTruthy();
+    expect(screen.getByText('一个用于开发者的 AI 智能体。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '打开 README' })).toBeTruthy();
     expect(screen.getByText(/端口：3000/)).toBeTruthy();
   });
 });

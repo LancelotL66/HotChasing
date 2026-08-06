@@ -15,6 +15,7 @@ import {
   FileText,
   FolderOpen,
   Play,
+  Sparkles,
   Star,
   X,
 } from "lucide-react";
@@ -1076,21 +1077,34 @@ export function ForkLabView() {
           ) : deployments.length === 0 ? (
             <EmptyTab icon={<CheckCircle2 className="h-6 w-6" />} title="暂无已部署项目" description="任务校验通过后，已部署项目会出现在这里。" />
           ) : (
-            <div className="space-y-2">
+            <div className="grid gap-4 md:grid-cols-2">
               {deployments.map((deployment) => {
-                const project = projects.find((item) => item.id === deployment.workspace_project_id);
+                const project = projects.find((item) => item.id === deployment.workspace_project_id) ?? deployment.project ?? undefined;
                 const repo = project?.repo ?? {};
                 const tags = project ? [repo.primary_category, ...jsonList(String(repo.function_tags ?? "")).slice(0, 4), ...jsonList(String(repo.platform_tags ?? "")).slice(0, 2)].filter(Boolean) : [];
-                return <article key={deployment.id} onClick={(event) => { if (!(event.target as HTMLElement).closest("button, a")) project && setReadmeProject(project); }} className="cursor-pointer rounded-lg border border-black/[0.08] bg-white p-4 transition-[border-color,transform] hover:-translate-y-0.5 hover:border-brand-indigo/60 dark:border-white/[0.08] dark:bg-white/[0.035]">
-                  {typeof repo.hot_summary_zh === "string" && repo.hot_summary_zh && <div className="hc-notice mb-3 p-3 text-sm leading-6">{repo.hot_summary_zh}</div>}
-                  <p className="font-semibold">{deployment.project?.upstream_full_name ?? project?.upstream_full_name ?? deployment.workspace_project_id}</p>
-                  {project && <p className="mt-1 text-xs text-gray-500">{String(repo.language ?? "未知语言")} · Stars {Number(repo.stargazers_count ?? 0).toLocaleString()} · 最近更新 {repo.updated_at ? new Date(String(repo.updated_at)).toLocaleDateString("zh-CN") : "—"}</p>}
-                  <p className="mt-1 text-xs text-gray-500">
-                    状态：{deployment.status} · 端口：{(() => { try { return JSON.parse(deployment.ports_json ?? "[]").join(", ") || "—"; } catch { return "—"; } })()}
-                  </p>
+                const fullName = project?.upstream_full_name ?? deployment.project?.upstream_full_name ?? deployment.workspace_project_id;
+                const ports = (() => { try { return JSON.parse(deployment.ports_json ?? "[]").join(", ") || "—"; } catch { return "—"; } })();
+                return <article key={deployment.id} onClick={(event) => { if (!(event.target as HTMLElement).closest("button, a")) project && setReadmeProject(project); }} className="cursor-pointer rounded-lg border border-black/[0.08] bg-white p-4 transition-[border-color,background-color,transform] hover:-translate-y-0.5 hover:border-brand-indigo/60 dark:border-white/[0.08] dark:bg-white/[0.035]">
+                  <div className="hc-notice mb-3 min-h-12 p-3 text-sm leading-6">
+                    <Sparkles className="mr-2 inline h-4 w-4" />
+                    {typeof repo.hot_summary_zh === "string" && repo.hot_summary_zh ? repo.hot_summary_zh : "AI 总结暂不可用，该项目的部署记录仍可查看。"}
+                  </div>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold">{fullName}</p>
+                      <p className="mt-1 text-xs text-gray-500">{String(repo.language ?? "未知语言")} · <Star className="inline h-3 w-3" /> {Number(repo.stargazers_count ?? 0).toLocaleString()} · 最近更新 {repo.updated_at ? new Date(String(repo.updated_at)).toLocaleDateString("zh-CN") : "—"}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      {project && <button onClick={() => setReadmeProject(project)} title="打开 README" aria-label="打开 README" className="hc-icon-button h-8 w-8"><FileText className="h-4 w-4" /></button>}
+                      <a href={`https://zread.ai/${fullName}`} target="_blank" rel="noreferrer" title="在 Z-Read 中打开" aria-label="在 Z-Read 中打开" className="hc-icon-button h-8 w-8"><ExternalLink className="h-4 w-4" /></a>
+                      <a href={`https://github.com/${fullName}`} target="_blank" rel="noreferrer" title="在 GitHub 中打开" aria-label="在 GitHub 中打开" className="hc-icon-button h-8 w-8"><Github className="h-4 w-4" /></a>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">部署状态：{deployment.status} · 端口：{ports}</p>
                   {tags.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{tags.map((tag) => <span key={String(tag)} className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-white/10 dark:text-gray-200">#{String(tag)}</span>)}</div>}
-                  {deployment.workspace_path && <p className="mt-3 text-xs text-gray-400">工作区：{deployment.workspace_path}</p>}
-                  <div className="mt-3 flex justify-end">
+                  {typeof repo.description === "string" && repo.description && <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">{repo.description}</p>}
+                  {deployment.workspace_path && <p className="mt-3 truncate text-xs text-gray-400" title={deployment.workspace_path}>工作区：{deployment.workspace_path}</p>}
+                  <div className="mt-4 flex justify-end">
                     {project && <button onClick={() => void starDeployment(deployment, project)} disabled={starringDeploymentId === deployment.id} title="添加 GitHub Star" aria-label="添加 GitHub Star" className="hc-icon-button mr-1 h-8 w-8 hover:bg-yellow-100 disabled:opacity-50 dark:hover:bg-yellow-500/20">{starringDeploymentId === deployment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}</button>}
                     <button onClick={() => setReportProject({ id: deployment.workspace_project_id, name: deployment.project?.upstream_full_name ?? deployment.workspace_project_id })} className="mr-2 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10"><FileText className="h-4 w-4" />查看报告</button>
                     <button

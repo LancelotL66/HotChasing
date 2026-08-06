@@ -1,4 +1,5 @@
 import { backend } from './backendAdapter';
+import type { ForkLabProject } from './forkLabApi';
 
 export type DeploymentTaskStatus =
   | 'QUEUED' | 'CLAIMED' | 'PREPARING' | 'CLONING' | 'AGENT_PLANNING' | 'PLAN_VALIDATING'
@@ -51,10 +52,7 @@ export interface LocalDeployment {
   status: string;
   started_at: string;
   stopped_at: string | null;
-  project?: {
-    upstream_full_name: string;
-    source: string;
-  } | null;
+  project?: ForkLabProject | null;
 }
 
 export interface RunnerAgent {
