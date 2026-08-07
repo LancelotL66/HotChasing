@@ -60,7 +60,11 @@ async function loadOrRegisterRunner() {
 
 async function processTask(bundle) {
   const taskId = bundle.task.id;
-  const workspaceDir = path.join(config.workspaceRoot, taskId);
+  const repoName = String(bundle.repo?.name || bundle.repo?.full_name || 'task')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, '-')
+    .slice(0, 60);
+  const workspaceDir = path.join(config.workspaceRoot, `${repoName}-${String(taskId).slice(0, 8)}`);
   const logWithTask = (message) => log(`[${taskId}] ${message}`);
   const agentLogLines = [];
 
