@@ -45,7 +45,7 @@ export async function manualAdapter({ instructionsDir, outputDir, repoDir, log }
 /**
  * OpenCodeAdapter：以非交互方式调用 opencode CLI 处理部署任务。
  */
-export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log, onDecisionRequest }) {
+export async function openCodeAdapter({ instructionsDir, inputDir, outputDir, repoDir, log, onDecisionRequest }) {
   if (!config.agentModel) {
     throw new Error('OpenCode 未配置 AGENT_MODEL。请在“设置 -> 本地 Agent”填写 provider/model 后重启 Runner。');
   }
@@ -63,7 +63,9 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
     let waitingForDecision = false;
     let agentExitedWhileWaiting = false;
     let restartAfterDecision = false;
+    let exitRecoveryCount = 0;
     let settled = false;
+    const MAX_EXIT_RECOVERIES = 3;
     const decisionDir = path.join(outputDir, 'decisions', 'decision-requests');
     const decisionFile = path.join(outputDir, 'decision-request.json');
     const finish = (error, value) => {
@@ -93,7 +95,7 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
         if (/message=(created|process)|stream providerID=/.test(text)) { initialized = true; clearTimeout(initTimer); }
         log(`[opencode] ${text.trimEnd()}`);
       });
-      child.onExit(({ exitCode }) => {
+      child.onExit(async ({ exitCode }) => {
         if (settled) return;
         if (waitingForDecision) {
           agentExitedWhileWaiting = true;
@@ -106,11 +108,42 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
           return;
         }
         const result = readResult(outputDir);
-        if (!result) {
+        if (result) {
+          finish(null, { result, adapter: 'opencode' });
+          return;
+        }
+        if (!onDecisionRequest || exitRecoveryCount >= MAX_EXIT_RECOVERIES) {
           finish(new Error(`opencode 退出（code=${exitCode}）但未生成 result.json`));
           return;
         }
-        finish(null, { result, adapter: 'opencode' });
+        // Agent 异常退出且未产出结果：通常由上游 API 瞬时故障引起。
+        // 不直接结束任务，而是请用户在 App 中选择是否继续，确认后重启 Agent。
+        exitRecoveryCount += 1;
+        try {
+          await onDecisionRequest({
+            requestId: `opencode-exit-retry-${exitRecoveryCount}`,
+            question: `opencode 异常退出（code=${exitCode}）且未生成 result.json，通常是上游 API 瞬时故障。是否重新继续执行？`,
+            options: [
+              { id: 'retry', label: '继续', description: '重新启动 opencode 继续执行当前测试任务。' },
+              { id: 'stop', label: '停止', description: '结束当前任务，转人工处理。' },
+            ],
+          });
+          const decisionPath = path.join(inputDir, 'decision-response.json');
+          let choice = '';
+          try {
+            choice = String(JSON.parse(fs.readFileSync(decisionPath, 'utf8')).choice ?? '');
+          } catch {
+            // 未能读取决策响应，按停止处理。
+          }
+          if (choice === 'retry') {
+            log(`[opencode] 用户选择继续，重启 Agent（第 ${exitRecoveryCount} 次恢复）`);
+            launchAgent(true);
+            return;
+          }
+          finish(new Error(`opencode 退出（code=${exitCode}）但未生成 result.json；用户选择停止`));
+        } catch (error) {
+          finish(new Error(`opencode 退出（code=${exitCode}）但未生成 result.json；等待用户决策超时：${error.message}`));
+        }
       });
     };
     const decisionTimer = setInterval(async () => {
