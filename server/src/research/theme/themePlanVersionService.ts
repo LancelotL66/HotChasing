@@ -1,8 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../../db/connection.js';
 import { requireCurrentState } from '../state/researchStateService.js';
-import { activeSelectedTools } from '../theme/themePlanHelpers.js';
-import type { ThemeWorkflow } from '../state/researchStateSchema.js';
+import type { ResearchState, SelectedTool, ThemeWorkflow } from '../state/researchStateSchema.js';
+
+function activeSelectedTools(state: Pick<ResearchState, 'selectedTools'>): SelectedTool[] {
+  return state.selectedTools.filter(
+    (tool) => tool.status !== 'REMOVED_BY_USER' && tool.selectionRole !== 'EXCLUDED',
+  );
+}
 
 /**
  * 主题方案命名与版本。

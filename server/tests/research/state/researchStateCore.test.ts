@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { researchStateSchema, researchRequirementsSchema, type ResearchState } from '../../src/research/state/researchStateSchema.js';
-import { applyOperations } from '../../src/research/state/researchStateReducer.js';
-import { validateResearchState } from '../../src/research/state/researchConsistencyValidator.js';
-import { buildStageQueries, buildSearchStrategy } from '../../src/research/github/githubQueryGenerator.js';
-import { deduplicateCandidates, applyRuleFilters } from '../../src/research/github/githubCandidateFilter.js';
-import { parseRequirementByRules } from '../../src/research/conversation/researchInitialParser.js';
-import { analyzeImpact } from '../../src/research/conversation/researchImpactAnalyzer.js';
-import { interpretByRules } from '../../src/research/conversation/researchChangeInterpreter.js';
-import type { GithubSearchRepo } from '../../src/research/github/githubResearchClient.js';
+import { researchStateSchema, researchRequirementsSchema, type ResearchState } from '../../../src/research/state/researchStateSchema.js';
+import { applyOperations } from '../../../src/research/state/researchStateReducer.js';
+import { validateResearchState } from '../../../src/research/state/researchConsistencyValidator.js';
+import { buildStageQueries, buildSearchStrategy } from '../../../src/research/github/githubQueryGenerator.js';
+import { deduplicateCandidates, applyRuleFilters } from '../../../src/research/github/githubCandidateFilter.js';
+import { parseRequirementByRules } from '../../../src/research/conversation/researchInitialParser.js';
+import { analyzeImpact } from '../../../src/research/conversation/researchImpactAnalyzer.js';
+import { interpretByRules } from '../../../src/research/conversation/researchChangeInterpreter.js';
+import type { GithubSearchRepo } from '../../../src/research/github/githubResearchClient.js';
 
 function baseState(overrides: Partial<ResearchState> = {}): ResearchState {
   return researchStateSchema.parse({

@@ -14,7 +14,7 @@ import { applyAndSave, type ApplyResult } from '../state/researchStateWriter.js'
 import { buildToolFacts } from '../analysis/researchToolFacts.js';
 import { interpretUserMessage } from './researchChangeInterpreter.js';
 import { analyzeImpact } from './researchImpactAnalyzer.js';
-import { setTopicStatus } from '../topicService.js';
+import { setTopicStatus } from '../state/researchTopicService.js';
 
 /**
  * Research Change Proposal 生命周期。

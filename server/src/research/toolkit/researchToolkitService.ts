@@ -1,7 +1,7 @@
 import { requireCurrentState } from '../state/researchStateService.js';
 import { applyAndSave, type ApplyResult } from '../state/researchStateWriter.js';
 import { getToolAnalysis } from '../analysis/researchToolFacts.js';
-import { listCandidates, type CandidateView } from '../researchSearchService.js';
+import { listCandidates, type CandidateView } from '../github/researchSearchService.js';
 import type { ChangeOperation } from '../state/researchOperations.js';
 import type { AcquisitionMode, ResearchRole, ResearchState, SelectionRole } from '../state/researchStateSchema.js';
 

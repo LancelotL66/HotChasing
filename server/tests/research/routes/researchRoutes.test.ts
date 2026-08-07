@@ -1,20 +1,20 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FakeDb } from '../helpers/fakeDb.js';
+import { FakeDb } from '../../helpers/fakeDb.js';
 
 let fakeDb: FakeDb;
 
-vi.mock('../../src/db/connection.js', () => ({
+vi.mock('../../../src/db/connection.js', () => ({
   getDb: () => fakeDb,
 }));
 
-vi.mock('../../src/research/ai/researchAi.js', () => ({
+vi.mock('../../../src/research/ai/researchAi.js', () => ({
   requestResearchJson: vi.fn(async () => ({ data: null, source: 'rule', model: null })),
   hasActiveAIConfig: vi.fn(() => false),
 }));
 
-vi.mock('../../src/research/github/githubResearchClient.js', () => ({
+vi.mock('../../../src/research/github/githubResearchClient.js', () => ({
   searchRepositories: vi.fn(async () => ({
     repos: [{ nodeId: 'n1', owner: 'mne-tools', name: 'mne-python', fullName: 'mne-tools/mne-python', htmlUrl: 'https://github.com/mne-tools/mne-python', description: 'MNE software for processing MEG and EEG data', defaultBranch: 'main', primaryLanguage: 'Python', topics: ['eeg', 'neuroscience'], licenseSpdx: 'BSD-3-Clause', stars: 2600, forks: 900, openIssues: 120, archived: false, disabled: false, isFork: false, parentFullName: null, pushedAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z' }],
     totalCount: 1,
@@ -47,7 +47,7 @@ vi.mock('../../src/research/github/githubResearchClient.js', () => ({
   isRateLimited: vi.fn(() => false),
 }));
 
-vi.mock('../../src/research/github/githubRepositoryEnricher.js', () => ({
+vi.mock('../../../src/research/github/githubRepositoryEnricher.js', () => ({
   enrichRepository: vi.fn(async () => ({
     readmeText: '# MNE-Python\n读 EEG 数据并滤波。',
     readmeHash: 'abc',
@@ -60,8 +60,8 @@ vi.mock('../../src/research/github/githubRepositoryEnricher.js', () => ({
   saveStructuredAnalysis: vi.fn(),
 }));
 
-vi.mock('../../src/research/analysis/researchToolAnalyzer.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/research/analysis/researchToolAnalyzer.js')>();
+vi.mock('../../../src/research/analysis/researchToolAnalyzer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/research/analysis/researchToolAnalyzer.js')>();
   return {
     ...actual,
     analyzeTool: vi.fn(async (repo: { nodeId: string; fullName: string }, _enrichment, _state, fallbackStageIds: string[]) => ({
@@ -92,7 +92,7 @@ vi.mock('../../src/research/analysis/researchToolAnalyzer.js', async (importOrig
   };
 });
 
-const { default: researchRouter } = await import('../../src/routes/research.js');
+const { default: researchRouter } = await import('../../../src/routes/research.js');
 
 function createTestApp() {
   const app = express();

@@ -8,7 +8,7 @@ import {
   requireTopic,
   updateTopic,
   setTopicStatus,
-} from '../research/topicService.js';
+} from '../research/state/researchTopicService.js';
 import {
   getCurrentState,
   getStateVersion,
@@ -36,7 +36,7 @@ import {
   listCandidates,
   listSearchRuns,
   runSearch,
-} from '../research/researchSearchService.js';
+} from '../research/github/researchSearchService.js';
 import {
   checkCompatibility,
   findAlternatives,
@@ -49,7 +49,7 @@ import {
   generateThemePlan,
   saveThemePlan as saveThemePlanToState,
 } from '../research/theme/themePlanGenerator.js';
-import themeWorkflowSchema from '../research/theme/themePlanSchema.js';
+import { themeWorkflowSchema } from '../research/state/researchStateSchema.js';
 import {
   deleteTheme,
   getTheme,
