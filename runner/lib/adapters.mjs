@@ -64,6 +64,7 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
     let agentExitedWhileWaiting = false;
     let restartAfterDecision = false;
     let settled = false;
+    const decisionDir = path.join(outputDir, 'decisions', 'decision-requests');
     const decisionFile = path.join(outputDir, 'decision-request.json');
     const finish = (error, value) => {
       if (settled) return;
@@ -113,9 +114,21 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
       });
     };
     const decisionTimer = setInterval(async () => {
-      if (!onDecisionRequest || decisionInFlight || !fs.existsSync(decisionFile)) return;
+      if (!onDecisionRequest || decisionInFlight) return;
+      let requestFile = null;
       try {
-        const raw = fs.readFileSync(decisionFile, 'utf8').trim();
+        if (fs.existsSync(decisionFile)) requestFile = decisionFile;
+        else if (fs.existsSync(decisionDir)) {
+          const files = fs.readdirSync(decisionDir).filter((name) => name.endsWith('.json')).sort();
+          const latest = files[files.length - 1];
+          if (latest) requestFile = path.join(decisionDir, latest);
+        }
+      } catch {
+        requestFile = null;
+      }
+      if (!requestFile) return;
+      try {
+        const raw = fs.readFileSync(requestFile, 'utf8').trim();
         if (!raw || raw === decisionRequest) return;
         const request = JSON.parse(raw);
         decisionRequest = raw;
@@ -141,7 +154,7 @@ export async function openCodeAdapter({ instructionsDir, outputDir, repoDir, log
     const timer = setTimeout(() => {
       child.kill();
       finish(new Error('opencode 运行超时'));
-    }, config.agentTimeoutMs);
+    }, config.agentTimeoutMs * 2);
     initTimer = setTimeout(() => {
       if (initialized) return;
       child.kill();

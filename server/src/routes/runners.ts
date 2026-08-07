@@ -67,7 +67,7 @@ const activeTaskStatuses = ['CLAIMED', 'PREPARING', 'CLONING', 'AGENT_PLANNING',
 
 function pruneOfflineRunners(): void {
   const db = getDb();
-  const cutoff = new Date(Date.now() - 90_000).toISOString();
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
   const stale = db.prepare('SELECT id FROM runner_agents WHERE last_heartbeat_at IS NULL OR last_heartbeat_at < ?').all(cutoff) as Array<{ id: string }>;
   const activeCheck = db.prepare(`SELECT COUNT(*) AS c FROM deployment_tasks WHERE runner_id=? AND status IN (${activeTaskStatuses.map(() => '?').join(',')})`);
   const remove = db.prepare('DELETE FROM runner_agents WHERE id=?');
@@ -86,7 +86,7 @@ router.get('/api/runners', (_req, res) => {
       FROM runner_agents
       ORDER BY last_heartbeat_at DESC, registered_at DESC
     `).all() as Array<Record<string, unknown>>;
-    const onlineAfter = Date.now() - 90_000;
+    const onlineAfter = Date.now() - 30 * 60 * 1000;
     res.json({
       runners: rows.map((row) => ({
         ...row,

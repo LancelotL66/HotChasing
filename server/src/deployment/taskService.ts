@@ -160,13 +160,13 @@ export function blockTasksWithOfflineRunners(): void {
   const db = getDb();
   const activeStatuses = ['CLAIMED', 'PREPARING', 'CLONING', 'AGENT_PLANNING', 'PLAN_VALIDATING', 'BUILDING', 'STARTING', 'VERIFYING', 'REPAIRING', 'REPORTING'];
   const tasks = db.prepare(`SELECT * FROM deployment_tasks WHERE status IN (${activeStatuses.map(() => '?').join(',')})`).all(...activeStatuses) as Record<string, unknown>[];
-  const cutoff = Date.now() - 90_000;
+  const cutoff = Date.now() - 30 * 60 * 1000;
   for (const task of tasks) {
     const runnerId = task.runner_id as string | null;
     const runner = runnerId ? db.prepare('SELECT last_heartbeat_at FROM runner_agents WHERE id=?').get(runnerId) as { last_heartbeat_at?: string | null } | undefined : undefined;
     const heartbeat = runner?.last_heartbeat_at ? Date.parse(runner.last_heartbeat_at) : NaN;
     if (!runner || !Number.isFinite(heartbeat) || heartbeat < cutoff) {
-      const message = 'Runner 已离线超过 90 秒，任务已暂停。请重新启动 Runner 后重试，或转人工处理。';
+      const message = 'Runner 已离线超过 30 分钟，任务已暂停。请重新启动 Runner 后重试，或转人工处理。';
       updateTaskStatus(String(task.id), 'BLOCKED', 'RUNNER_OFFLINE', Number(task.progress ?? 0), message);
       addEvent(String(task.id), runnerId, 'runner_offline', 'RUNNER_OFFLINE', message);
     }
