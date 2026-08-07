@@ -7,6 +7,10 @@ const labels = { KEEP_LONG_TERM: '值得长期保留', WORTH_TRYING: '值得试�
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
 }
+function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
+}
 function row(values) { return `| ${values.map((value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ')).join(' | ')} |`; }
 function list(items, empty = '无') { return items.length ? items.map((item) => `- ${item}`).join('\n') : `- ${empty}`; }
 
@@ -15,14 +19,24 @@ export function generateUserReport({ taskId, outputDir, inputDir, fallbackResult
   const technicalDir = path.join(outputDir, 'technical');
   fs.mkdirSync(technicalDir, { recursive: true });
   const legacy = fallbackResult ?? readJson(path.join(outputDir, 'result.json'), {});
-  const execution = readJson(path.join(technicalDir, 'execution-result.json'), {
+  const rawExecution = readJson(path.join(technicalDir, 'execution-result.json'), {});
+  const depStatus = rawExecution.deployment?.status;
+  const execStatusOf = (s) => (s === 'PASS' ? 'SUCCESS' : s === 'PARTIAL' ? 'PARTIAL' : s === 'FAIL' ? 'FAILED' : s === 'BLOCKED' ? 'BLOCKED' : 'NOT_ATTEMPTED');
+  const execSummary = (obj, fallback) => {
+    if (!obj) return fallback;
+    return String(obj.summary ?? obj.reason ?? obj.install ?? obj.start ?? obj.command ?? fallback);
+  };
+  const firstRun = rawExecution.coreFlows?.firstRun;
+  const primary = rawExecution.coreFlows?.primaryWorkflow;
+  const execution = {
     schemaVersion: 1, taskId,
-    deployment: { status: legacy?.status === 'passed' ? 'SUCCESS' : 'FAILED', summary: legacy?.summary || '未提供部署结果。' },
-    startup: { status: legacy?.status === 'passed' ? 'SUCCESS' : 'NOT_ATTEMPTED', summary: legacy?.notes || '未单独验证启动。' },
-    coreWorkflow: { status: 'NOT_TESTED', summary: '没有可验证的核心用户旅程证据。' },
-    testSuite: { status: legacy?.status === 'passed' ? 'PARTIAL' : 'NOT_ATTEMPTED', summary: '未提供结构化测试套件结果。' },
-    overallVerification: { status: legacy?.status === 'passed' ? 'PARTIALLY_VERIFIED' : 'NOT_VERIFIED' }, startedAt: startedAt || finishedAt, finishedAt,
-  });
+    deployment: rawExecution.deployment ? { status: execStatusOf(rawExecution.deployment.status) ?? 'FAILED', summary: execSummary(rawExecution.deployment, '未提供部署结果。') } : { status: legacy?.status === 'passed' ? 'SUCCESS' : 'FAILED', summary: legacy?.summary || '未提供部署结果。' },
+    startup: rawExecution.startup ? { status: execStatusOf(rawExecution.startup.status), summary: execSummary(rawExecution.startup, '未单独验证启动。') } : (firstRun ? { status: execStatusOf(firstRun.status), summary: execSummary(firstRun, '未单独验证启动。') } : { status: legacy?.status === 'passed' ? 'SUCCESS' : 'NOT_ATTEMPTED', summary: legacy?.notes || '未单独验证启动。' }),
+    coreWorkflow: rawExecution.coreWorkflow ? { status: rawExecution.coreWorkflow.status, summary: execSummary(rawExecution.coreWorkflow, '没有可验证的核心用户旅程证据。') } : (primary ? { status: primary.status, summary: execSummary(primary, '没有可验证的核心用户旅程证据。') } : { status: 'NOT_TESTED', summary: '没有可验证的核心用户旅程证据。' }),
+    testSuite: rawExecution.testSuite ? { status: execStatusOf(rawExecution.testSuite.status), summary: execSummary(rawExecution.testSuite, '未提供结构化测试套件结果。') } : { status: legacy?.status === 'passed' ? 'PARTIAL' : 'NOT_ATTEMPTED', summary: '未提供结构化测试套件结果。' },
+    overallVerification: rawExecution.overallVerification ?? { status: rawExecution.overallStatus === 'SUCCESS' || rawExecution.overallStatus === 'VERIFIED' ? 'PARTIALLY_VERIFIED' : rawExecution.overallStatus === 'BLOCKED' ? 'BLOCKED' : 'NOT_VERIFIED' },
+    startedAt: rawExecution.startedAt ?? (startedAt || finishedAt), finishedAt: rawExecution.finishedAt ?? finishedAt,
+  };
   const matrix = readJson(path.join(outputDir, 'capability-matrix.json'), { schemaVersion: 1, capabilities: [] });
   const playbook = readJson(path.join(outputDir, 'usage-playbook.json'), { schemaVersion: 1, representativeExample: { title: '项目核心使用场景', userGoal: '完成项目的主要用户任务', projectContext: '根据仓库文档和入口确定', steps: [], userVisibleResult: '未验证', verificationStatus: 'NOT_TESTED' }, firstTimeSetup: { prerequisites: [], steps: [] }, dailyWorkflows: [], advancedWorkflows: [], stopAndRemove: { stopSteps: [], dataLocations: [], cleanupSteps: [] } });
   const profile = readJson(path.join(inputDir, 'project-profile.json'), {});
@@ -34,11 +48,11 @@ export function generateUserReport({ taskId, outputDir, inputDir, fallbackResult
   const report = {
     schemaVersion: 1,
     verdict: { deploymentValue: value, label: labels[value], confidence, summary: coreVerified ? '至少一个核心用户旅程已在本地获得证据。' : '基础部署结果已收集，但核心用户旅程尚未完整验证。', keepRecommendation: coreVerified ? '建议保留，并在实际项目中继续验证。' : '建议仅为后续核心功能验证保留，暂不替代现有工具。' },
-    bestFor: profile.targetUsers || [], notFor: coreVerified ? [] : ['需要立即确认核心功能可用的用户'], userProblemsSolved: capabilities.map((item) => item.userValue), usageSummary: playbook.dailyWorkflows.map((item) => item.title), featureTable: capabilities, deploymentCostTable: [], comparisonTable: [], mainAdvantages: grouped(['VERIFIED_LOCAL', 'VERIFIED_SANDBOX']), mainLimitations: [...grouped(['NOT_TESTED', 'BLOCKED', 'FAILED']), ...capabilities.flatMap((item) => item.limitations || [])], verifiedCapabilities: grouped(['VERIFIED_LOCAL', 'VERIFIED_SANDBOX']), documentationOnlyCapabilities: grouped(['DOCUMENTATION_ONLY', 'INFERRED']), untestedCapabilities: grouped(['NOT_TESTED', 'BLOCKED']), failedCapabilities: grouped(['FAILED']), chooseThisWhen: coreVerified ? ['需要与本次已验证用户旅程相同的工作流'] : [], chooseAlternativesWhen: coreVerified ? [] : ['无法满足本次未验证核心能力所需条件'], nextActions: coreVerified ? ['在真实项目中复测关键工作流'] : ['准备缺失条件后重测核心用户旅程'],
+    bestFor: profile.targetUsers || [], notFor: coreVerified ? [] : ['需要立即确认核心功能可用的用户'], userProblemsSolved: capabilities.map((item) => item.userValue).filter(Boolean), usageSummary: (playbook.dailyWorkflows || []).map((item) => item.title).filter(Boolean), featureTable: capabilities, deploymentCostTable: [], comparisonTable: [], mainAdvantages: grouped(['VERIFIED_LOCAL', 'VERIFIED_SANDBOX']), mainLimitations: [...grouped(['NOT_TESTED', 'BLOCKED', 'FAILED']), ...capabilities.flatMap((item) => item.limitations || [])], verifiedCapabilities: grouped(['VERIFIED_LOCAL', 'VERIFIED_SANDBOX']), documentationOnlyCapabilities: grouped(['DOCUMENTATION_ONLY', 'INFERRED']), untestedCapabilities: grouped(['NOT_TESTED', 'BLOCKED']), failedCapabilities: grouped(['FAILED']), chooseThisWhen: coreVerified ? ['需要与本次已验证用户旅程相同的工作流'] : [], chooseAlternativesWhen: coreVerified ? [] : ['无法满足本次未验证核心能力所需条件'], nextActions: coreVerified ? ['在真实项目中复测关键工作流'] : ['准备缺失条件后重测核心用户旅程'],
   };
   const featureRows = capabilities.map((item) => row([item.name, item.userValue, item.verificationStatus, item.experience, (item.limitations || []).join('；')])).join('\n') || row(['无已收集功能证据', '—', 'NOT_TESTED', '—', '—']);
   const setupRows = (playbook.firstTimeSetup?.steps || []).map((item) => row([item.title, item.command || '按官方文档执行', item.expectedResult, item.verificationStatus])).join('\n') || row(['准备运行环境', '按官方文档执行', '具备测试前提', 'DOCUMENTATION_ONLY']);
-  const workflowRows = (playbook.dailyWorkflows || []).map((item) => row([item.title, item.steps.join(' -> '), item.expectedOutcome, item.verificationStatus])).join('\n') || row(['核心日常工作流', '未收集', '未验证', 'NOT_TESTED']);
+  const workflowRows = (playbook.dailyWorkflows || []).map((item) => row([item.title, (item.steps || []).join(' -> '), item.expectedOutcome, item.verificationStatus])).join('\n') || row(['核心日常工作流', '未收集', '未验证', 'NOT_TESTED']);
   const example = playbook.representativeExample || { title: '项目核心使用场景', userGoal: '完成项目的主要用户任务', projectContext: '根据仓库文档和入口确定', steps: [], userVisibleResult: '未验证', verificationStatus: 'NOT_TESTED' };
   const markdown = `# 项目本地使用评估报告
 

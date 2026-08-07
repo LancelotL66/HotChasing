@@ -6,10 +6,16 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
 }
 
+function boolEnv(name, fallback) {
+  const v = process.env[name];
+  if (v === undefined || v === '') return fallback;
+  return !['0', 'false', 'no', 'off'].includes(String(v).toLowerCase());
+}
+
 const DEFAULT_POLICY = {
-  schemaVersion: 1, allowedWorkspace: './repo', allowHostPackageInstall: false, allowWorkspaceToolchain: 'ASK',
+  schemaVersion: 1, allowedWorkspace: './repo', allowHostPackageInstall: false, allowWorkspaceToolchain: boolEnv('POLICY_ALLOW_WORKSPACE_TOOLCHAIN', false) ? true : 'ASK',
   allowSudo: false, allowPrivilegedContainers: false, allowHostNetwork: false, allowDockerSocketMount: false,
-  allowHomeDirectoryAccess: false, allowCredentialAccess: false, allowExternalProvider: 'ASK', allowPush: false,
+  allowHomeDirectoryAccess: false, allowCredentialAccess: false, allowExternalProvider: boolEnv('POLICY_ALLOW_EXTERNAL_PROVIDER', false) ? true : 'ASK', allowPush: false,
   maximumCpu: 2, maximumMemoryMb: 2048, maximumRuntimeSeconds: 1200,
 };
 
