@@ -102,9 +102,10 @@ async function processTask(bundle) {
         const requestId = String(request?.requestId ?? `${taskId}-${Date.now()}`);
         const question = typeof request?.question === 'string' ? request.question : 'Agent 需要人工决策后才能继续。';
         const options = Array.isArray(request?.options) ? request.options : [];
+        const requestedAt = new Date().toISOString();
         await api(`/runners/${config.runnerId}/tasks/${taskId}/events`, {
           method: 'POST',
-          body: { eventType: 'stage', stage: 'WAITING_FOR_INPUT', message: JSON.stringify({ requestId, question, options, requestedAt: new Date().toISOString() }) },
+          body: { eventType: 'stage', stage: 'WAITING_FOR_INPUT', message: JSON.stringify({ requestId, question, options, requestedAt }) },
         });
         logWithTask(`等待人工决策：${question}`);
         const deadline = Date.now() + config.agentTimeoutMs;
@@ -112,7 +113,13 @@ async function processTask(bundle) {
           const detail = await api(`/deployment/tasks/${taskId}`);
           const response = [...(detail.events ?? [])].reverse().find((event) => {
             if (event.event_type !== 'decision_response') return false;
-            try { return JSON.parse(event.message).requestId === requestId; } catch { return false; }
+            try {
+              const message = JSON.parse(event.message);
+              if (message.requestId !== requestId) return false;
+              // Only accept a response submitted after this request was raised, so a
+              // stale response from a previous run of the same request id is ignored.
+              return !message.respondedAt || Date.parse(message.respondedAt) >= Date.parse(requestedAt);
+            } catch { return false; }
           });
           if (response?.message) {
             fs.writeFileSync(path.join(inputDir, 'decision-response.json'), response.message, 'utf8');

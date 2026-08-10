@@ -79,13 +79,17 @@ export async function openCodeAdapter({ instructionsDir, inputDir, outputDir, re
     };
     const launchAgent = (continuation = false) => {
       if (settled) return;
+      let prompt = instruction;
       if (continuation) {
         fs.rmSync(path.join(outputDir, 'result.json'), { force: true });
         fs.rmSync(path.join(outputDir, 'report.md'), { force: true });
         log('[opencode] 已收到人工决策，重新唤起 Agent 读取 decision-response.json');
+        // Tell the restarted agent an operator has just answered a pending decision so it
+        // resumes with the approval applied instead of re-deriving the policy gate from scratch.
+        prompt = `${instruction}\n\nAn operator has answered the pending approval request. Read the decision file at ${path.join(inputDir, 'decision-response.json')} and continue the task under the approved scope (follow the decision's choice and note). Do not re-ask for the same approval.`;
       }
       try {
-        child = pty.spawn(resolveCli('opencode'), ['run', ...(config.agentPureMode ? ['--pure'] : []), ...(config.agentModel ? ['--model', config.agentModel] : []), ...(config.agentAutoApprove ? ['--auto'] : []), '--print-logs', instruction], { cwd: repoDir, env: process.env, name: 'xterm-color', cols: 120, rows: 36 });
+        child = pty.spawn(resolveCli('opencode'), ['run', ...(config.agentPureMode ? ['--pure'] : []), ...(config.agentModel ? ['--model', config.agentModel] : []), ...(config.agentAutoApprove ? ['--auto'] : []), '--print-logs', prompt], { cwd: repoDir, env: process.env, name: 'xterm-color', cols: 120, rows: 36 });
       } catch (error) {
         finish(new Error(`无法启动 opencode：${error.message}。请安装 opencode 或改用 AGENT=manual`));
         return;
