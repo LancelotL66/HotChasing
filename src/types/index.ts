@@ -389,7 +389,7 @@ export const defaultHeaderMenuConfig: HeaderMenuItem[] = [
   { id: 'digest', visible: true, order: 5 },
   { id: 'top100', visible: true, order: 6 },
   { id: 'fork-lab', visible: true, order: 3 },
-  { id: 'research', visible: true, order: 7 },
+  { id: 'research', visible: false, order: 7 },
   { id: 'settings', visible: true, order: 8 },
 ];
 

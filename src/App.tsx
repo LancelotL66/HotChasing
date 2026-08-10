@@ -14,7 +14,6 @@ import { BackToTop } from './components/BackToTop';
 import { DailyDigestView } from './components/DailyDigestView';
 import { Top100View } from './components/Top100View';
 import { ForkLabView } from './components/ForkLabView';
-import { ResearchView } from './components/ResearchView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppStore } from './store/useAppStore';
 import { logger } from './services/logger';
@@ -124,6 +123,7 @@ function App() {
     searchFilters,
     repositories,
     setSelectedCategory,
+    setCurrentView,
   } = useAppStore();
 
   // Restore persisted frontend debug level at startup so capture is active
@@ -147,6 +147,12 @@ function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+
+  // Theme research remains in the codebase for future iteration, but is not
+  // currently exposed as a product surface.
+  useEffect(() => {
+    if (hasHydrated && currentView === 'research') setCurrentView('repositories');
+  }, [currentView, hasHydrated, setCurrentView]);
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
@@ -224,12 +230,6 @@ function App() {
         return (
           <ErrorBoundary>
             <ForkLabView />
-          </ErrorBoundary>
-        );
-      case 'research':
-        return (
-          <ErrorBoundary>
-            <ResearchView />
           </ErrorBoundary>
         );
       default:

@@ -992,7 +992,7 @@ export const normalizePersistedState = (
         const isRequired = REQUIRED_HEADER_MENU_IDS.has(defaultItem.id);
         return {
           ...defaultItem,
-          visible: isRequired ? true : (typeof persistedItem.visible === 'boolean' ? persistedItem.visible : defaultItem.visible),
+          visible: isRequired ? true : defaultItem.id === 'research' ? false : (typeof persistedItem.visible === 'boolean' ? persistedItem.visible : defaultItem.visible),
           order: typeof persistedItem.order === 'number' ? persistedItem.order : defaultItem.order,
         };
       });
@@ -2342,8 +2342,10 @@ export const useAppStore = create<AppState & AppActions>()(
           const menu = state.headerMenuConfig.map((item) => ({ ...item }));
           const forks = menu.find((item) => item.id === 'forks');
           const forkLab = menu.find((item) => item.id === 'fork-lab');
+          const research = menu.find((item) => item.id === 'research');
           if (forks) forks.visible = false;
           if (forkLab) forkLab.order = 3;
+          if (research) research.visible = false;
           state.headerMenuConfig = menu;
         }
 

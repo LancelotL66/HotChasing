@@ -48,7 +48,7 @@ export const MenuManagementPanel: React.FC<MenuManagementPanelProps> = ({ t }) =
   const dragNodeRef = useRef<HTMLDivElement | null>(null);
 
   const sortedConfig = useMemo(
-    () => [...headerMenuConfig].sort((a, b) => a.order - b.order),
+    () => headerMenuConfig.filter((item) => item.id !== 'research').sort((a, b) => a.order - b.order),
     [headerMenuConfig]
   );
 
