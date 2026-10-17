@@ -136,10 +136,3 @@ HotChasing 是独立维护和持续改造的产品项目，当前代码、界面
 
 HotChasing 不隶属于 GitHub，也不代表 GitHub、AI 服务商或被收录项目。项目数据受 GitHub API、RSS、AI 服务和网络环境影响；AI 分类、摘要、评分和部署建议应由使用者自行核验。
 
-## 发布前检查
-
-1. 确认 README、应用标题、Electron 产品名和 Docker 镜像名均为 HotChasing。
-2. 确认第三方许可证和归属文件仍然存在。
-3. 确认没有提交 Token、API Key、数据库或 Docker 卷内容。
-4. 执行前端和后端构建及受影响模块测试。
-5. 发布桌面包前先备份 `hotchasing_backend-data` 数据卷。
